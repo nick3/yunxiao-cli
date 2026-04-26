@@ -59,11 +59,47 @@ go install ./cmd/yunxiao
 
 ## 认证与配置
 
-最常用方式是通过环境变量提供访问令牌：
+人类用户可以直接运行 `yunxiao auth` 进入交互式输入界面。CLI 会在终端中提示输入云效访问令牌，输入内容会明文显示以便核对；请在私密终端中输入，默认验证成功后写入本机配置：
+
+```bash
+yunxiao auth
+```
+
+如果已有本地 token，需要显式允许覆盖：
+
+```bash
+yunxiao auth --force
+```
+
+离线或内网环境无法访问验证接口时，可以显式跳过验证；此路径会保存未验证 token，后续业务命令可能仍因 token 无效而失败：
+
+```bash
+yunxiao auth --skip-verify --force
+```
+
+脚本中非交互写入 token 时，使用 stdin，避免 token 进入 shell history 或进程列表：
+
+```bash
+printf '%s\n' "$YUNXIAO_ACCESS_TOKEN" | yunxiao auth login --token-stdin --force --json
+```
+
+查看和清除当前认证状态：
+
+```bash
+yunxiao auth status --json
+yunxiao auth status --verify --json
+yunxiao auth logout --json
+```
+
+自动化、CI 和 AI Agent 仍推荐直接使用环境变量：
 
 ```bash
 export YUNXIAO_ACCESS_TOKEN=<your-access-token>
 ```
+
+`YUNXIAO_ACCESS_TOKEN` 的优先级高于本地配置。`auth logout` 只删除配置文件里的 `access_token`，不会影响当前 shell 中的环境变量。
+
+本地 token 默认保存在 `~/.yunxiao/config.yaml` 的 `access_token` 字段。CLI 写入时会尽力设置目录权限为 `0700`、配置文件权限为 `0600`；不要把该配置文件提交到 git。当前阶段不承诺 Windows 上完整 ACL 修复，如果需要更强隔离，后续可扩展系统 keychain。
 
 常用配置项：
 
@@ -72,7 +108,7 @@ export YUNXIAO_ACCESS_TOKEN=<your-access-token>
 | `--organization-id` / `YUNXIAO_ORGANIZATION_ID` | 云效组织 ID | 无 |
 | `--region` / `YUNXIAO_REGION` | 区域选择；当前主要保留为全局参数，实际端点优先由 `YUNXIAO_API_BASE_URL` 决定 | 无 |
 | `--timeout` / `YUNXIAO_TIMEOUT` | 请求超时时间，单位秒 | `30` |
-| `YUNXIAO_ACCESS_TOKEN` | 云效访问令牌 | 无，必需 |
+| `YUNXIAO_ACCESS_TOKEN` | 云效访问令牌；优先级高于配置文件 | 无 |
 | `YUNXIAO_API_BASE_URL` | API 基础地址 | `https://devops.aliyuncs.com` |
 | `YUNXIAO_REGION_DEFAULT_ORG_ID` | 区域版 endpoint 下的组织 ID 环境回退 | 无 |
 

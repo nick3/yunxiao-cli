@@ -31,16 +31,30 @@ Never guess aliases such as `repo list`, `testplans --page`, `--format json`, `-
 | Machine output | Pass `--json`; parse stdout only. |
 | Failure output | Non-zero exits still write JSON envelope to stdout. |
 | Diagnostics | stderr is only diagnostics; never use stderr as the structured error source. |
-| Auth | Use `YUNXIAO_ACCESS_TOKEN`; missing token maps to `AUTH_FAILED` / exit 3. |
+| Auth | Automation should use `YUNXIAO_ACCESS_TOKEN`; missing token maps to `AUTH_FAILED` / exit 3. |
 | Organization | Prefer explicit `--organization-id`; env/config fallback may exist. |
 | Page size | `--page-size` must be positive integer; invalid values are `PARAM_INVALID` / exit 2 before auth. |
 | Pagination | Follow `meta.pagination.next_token` only when `meta.pagination.has_more` is true. |
 | Testplans | `testhub testplans list` is not paginated; do not pass `--page-size` or `--page-token`. |
 | Raw request | Phase 2 raw is read-only: only `--method GET` and `--path /oapi/...`. |
 
+## Auth Guidance
+
+Use `YUNXIAO_ACCESS_TOKEN` for automation. Human users may run `yunxiao auth` in a private real terminal for visible interactive token entry. Agents, CI, and scripts must not trigger the interactive path; use env or explicit stdin instead:
+
+```bash
+printf '%s\n' "$YUNXIAO_ACCESS_TOKEN" | yunxiao auth login --token-stdin --force --json
+yunxiao auth status --json
+yunxiao auth status --verify --json
+yunxiao auth logout --json
+```
+
+Only add `--skip-verify` for explicit offline/internal-network cases; it saves an unverified token. Never pass tokens as command-line arguments. `YUNXIAO_ACCESS_TOKEN` takes precedence over config, and `auth logout` only removes the config token.
+
 ## Command Quick Reference
 
 ```bash
+yunxiao auth status --json
 yunxiao org current --json
 yunxiao codeup repos list --organization-id <org> --json
 yunxiao codeup repo get --organization-id <org> --repo-id <repo> --json

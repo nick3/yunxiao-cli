@@ -3,11 +3,13 @@ module github.com/aliyun/yunxiao-cli
 go 1.25.4
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/term v0.42.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -25,5 +27,4 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
