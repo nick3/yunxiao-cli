@@ -143,6 +143,7 @@ func newSprintsCmd() *cobra.Command {
 
 func newWorkitemsListCmd() *cobra.Command {
 	var organizationID, category, spaceID, pageToken string
+	var opts projexdomain.WorkitemListOptions
 	var pageSize int
 
 	cmd := &cobra.Command{Use: "list", Short: "List workitems", RunE: func(cmd *cobra.Command, args []string) error {
@@ -165,7 +166,7 @@ func newWorkitemsListCmd() *cobra.Command {
 		if !ok {
 			return nil
 		}
-		data, pagination, errDetail := projexdomain.ListWorkitems(context.Background(), client, orgID, category, spaceID, pageSize, pageToken)
+		data, pagination, errDetail := projexdomain.ListWorkitems(context.Background(), client, orgID, category, spaceID, pageSize, pageToken, opts)
 		if errDetail != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] workitem list failed: %s\n", errDetail.Message)
 			os.Exit(cli.WriteError(errDetail, meta, format))
@@ -180,6 +181,28 @@ func newWorkitemsListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
 	cmd.Flags().StringVar(&category, "category", "", "Workitem category")
 	cmd.Flags().StringVar(&spaceID, "space-id", "", "Projex space ID")
+	cmd.Flags().StringVar(&opts.SpaceType, "space-type", "", "Projex space type")
+	cmd.Flags().StringVar(&opts.Subject, "subject", "", "Subject keyword filter")
+	cmd.Flags().StringVar(&opts.Status, "status", "", "Comma-separated status IDs")
+	cmd.Flags().StringVar(&opts.CreatedAfter, "created-after", "", "Creation date lower bound")
+	cmd.Flags().StringVar(&opts.CreatedBefore, "created-before", "", "Creation date upper bound")
+	cmd.Flags().StringVar(&opts.UpdatedAfter, "updated-after", "", "Update date lower bound")
+	cmd.Flags().StringVar(&opts.UpdatedBefore, "updated-before", "", "Update date upper bound")
+	cmd.Flags().StringVar(&opts.Creator, "creator", "", "Comma-separated creator IDs")
+	cmd.Flags().StringVar(&opts.AssignedTo, "assigned-to", "", "Comma-separated assignee IDs")
+	cmd.Flags().StringVar(&opts.Sprint, "sprint", "", "Comma-separated sprint IDs")
+	cmd.Flags().StringVar(&opts.WorkitemType, "workitem-type", "", "Comma-separated workitem type IDs")
+	cmd.Flags().StringVar(&opts.StatusStage, "status-stage", "", "Comma-separated status stages")
+	cmd.Flags().StringVar(&opts.Tag, "tag", "", "Comma-separated tag IDs")
+	cmd.Flags().StringVar(&opts.Priority, "priority", "", "Comma-separated priority IDs")
+	cmd.Flags().StringVar(&opts.SubjectDescription, "subject-description", "", "Subject or description keyword filter")
+	cmd.Flags().StringVar(&opts.FinishTimeAfter, "finish-time-after", "", "Finish date lower bound")
+	cmd.Flags().StringVar(&opts.FinishTimeBefore, "finish-time-before", "", "Finish date upper bound")
+	cmd.Flags().StringVar(&opts.UpdateStatusAtAfter, "update-status-at-after", "", "Status update date lower bound")
+	cmd.Flags().StringVar(&opts.UpdateStatusAtBefore, "update-status-at-before", "", "Status update date upper bound")
+	cmd.Flags().StringVar(&opts.AdvancedConditions, "advanced-conditions", "", "Raw Projex conditions JSON")
+	cmd.Flags().StringVar(&opts.OrderBy, "order-by", "", "Workitem order field")
+	cmd.Flags().StringVar(&opts.Sort, "sort", "", "Sort direction")
 	cmd.Flags().IntVar(&pageSize, "page-size", 20, "Page size")
 	cmd.Flags().StringVar(&pageToken, "page-token", "", "Page token")
 	flagmeta.MustMarkRequired(cmd, "organization-id", "category", "space-id")

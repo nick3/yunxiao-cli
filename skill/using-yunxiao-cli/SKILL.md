@@ -65,10 +65,17 @@ Only add `--skip-verify` for explicit offline/internal-network cases; it saves a
 ```bash
 yunxiao auth status --json
 yunxiao org current --json
+yunxiao org members list --organization-id <org> --json
 yunxiao codeup repos list --organization-id <org> --json
 yunxiao codeup repo get --organization-id <org> --repo-id <repo> --json
+yunxiao codeup branches list --organization-id <org> --repo-id <repo> --json
+yunxiao codeup commits list --organization-id <org> --repo-id <repo> --json
+yunxiao codeup file get --organization-id <org> --repo-id <repo> --path <file> --ref <ref> --json
+yunxiao codeup compare get --organization-id <org> --repo-id <repo> --from <ref> --to <ref> --json
 yunxiao flow pipelines list --organization-id <org> --json
 yunxiao flow pipeline get --organization-id <org> --pipeline-id <pipeline> --json
+yunxiao flow runs list --organization-id <org> --pipeline-id <pipeline> --json
+yunxiao flow run get --organization-id <org> --pipeline-id <pipeline> --run-id <run> --json
 yunxiao projex projects list --organization-id <org> --json
 yunxiao projex project get --organization-id <org> --project-id <project> --json
 yunxiao projex workitems list --organization-id <org> --category <category> --space-id <space> --json
@@ -83,6 +90,10 @@ yunxiao testhub directories list --organization-id <org> --test-repo-id <repo> -
 yunxiao testhub testplans list --organization-id <org> --json
 yunxiao raw request --method GET --path /oapi/... --json
 ```
+
+## Projex Scope
+
+Projex commands currently support project/space-scoped list enumeration and known-ID detail reads. `projex workitems list` requires explicit `--organization-id`, `--category`, and `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`. Do not assume cross-project personal todo search, unfinished-state detection, or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
 
 ## Parsing Pattern
 

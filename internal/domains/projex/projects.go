@@ -2,9 +2,11 @@ package projex
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/aliyun/yunxiao-cli/internal/domains/shared"
 	"github.com/aliyun/yunxiao-cli/internal/httpx"
@@ -26,8 +28,45 @@ func GetProject(ctx context.Context, client *httpx.Client, organizationID, proje
 	return data, nil
 }
 
-func ListWorkitems(ctx context.Context, client *httpx.Client, organizationID, category, spaceID string, pageSize int, pageToken string) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
+type WorkitemListOptions struct {
+	SpaceType            string
+	Subject              string
+	Status               string
+	CreatedAfter         string
+	CreatedBefore        string
+	UpdatedAfter         string
+	UpdatedBefore        string
+	Creator              string
+	AssignedTo           string
+	Sprint               string
+	WorkitemType         string
+	StatusStage          string
+	Tag                  string
+	Priority             string
+	SubjectDescription   string
+	FinishTimeAfter      string
+	FinishTimeBefore     string
+	UpdateStatusAtAfter  string
+	UpdateStatusAtBefore string
+	AdvancedConditions   string
+	OrderBy              string
+	Sort                 string
+}
+
+func ListWorkitems(ctx context.Context, client *httpx.Client, organizationID, category, spaceID string, pageSize int, pageToken string, opts WorkitemListOptions) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
 	payload := map[string]any{"category": category, "spaceId": spaceID, "perPage": pageSize}
+	if opts.SpaceType != "" {
+		payload["spaceType"] = opts.SpaceType
+	}
+	if conditions := buildWorkitemConditions(opts); conditions != "" {
+		payload["conditions"] = conditions
+	}
+	if opts.OrderBy != "" {
+		payload["orderBy"] = opts.OrderBy
+	}
+	if opts.Sort != "" {
+		payload["sort"] = opts.Sort
+	}
 	shared.ApplyPageToken(payload, pageToken)
 	return searchList(ctx, client, workitemsPath(client.BaseURL, organizationID)+":search", payload, pageSize)
 }
@@ -55,17 +94,86 @@ func ListSprints(ctx context.Context, client *httpx.Client, organizationID, proj
 	if errDetail != nil {
 		return nil, nil, errDetail
 	}
-	nextToken := shared.StringToken(headers.Get("x-next-page"))
-	return data, &output.Pagination{NextToken: nextToken, PageSize: pageSize, HasMore: nextToken != nil}, nil
+	return data, shared.SearchPaginationFromHeaders(headers, pageSize), nil
 }
 
 func searchList(ctx context.Context, client *httpx.Client, path string, payload map[string]any, pageSize int) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
-	var apiResp shared.SearchResponse
-	if errDetail := shared.RequestJSONWithBody(ctx, client, http.MethodPost, path, payload, &apiResp); errDetail != nil {
+	var body json.RawMessage
+	headers, errDetail := shared.RequestJSONWithBodyAndHeaders(ctx, client, http.MethodPost, path, payload, &body)
+	if errDetail != nil {
 		return nil, nil, errDetail
 	}
-	nextToken := shared.StringToken(apiResp.NextPage)
-	return apiResp.Data, &output.Pagination{NextToken: nextToken, PageSize: pageSize, HasMore: nextToken != nil}, nil
+	return shared.DecodeSearchList(body, headers, pageSize)
+}
+
+func buildWorkitemConditions(opts WorkitemListOptions) string {
+	if opts.AdvancedConditions != "" {
+		return opts.AdvancedConditions
+	}
+	conditions := make([]map[string]any, 0)
+	addStringCondition(&conditions, "string", "subject", opts.Subject)
+	addListCondition(&conditions, "status", "status", "list", opts.Status)
+	addDateCondition(&conditions, "dateTime", "gmtCreate", opts.CreatedAfter, opts.CreatedBefore)
+	addDateCondition(&conditions, "dateTime", "gmtModified", opts.UpdatedAfter, opts.UpdatedBefore)
+	addListCondition(&conditions, "user", "creator", "list", opts.Creator)
+	addListCondition(&conditions, "user", "assignedTo", "list", opts.AssignedTo)
+	addListCondition(&conditions, "sprint", "sprint", "list", opts.Sprint)
+	addListCondition(&conditions, "workitemType", "workitemType", "list", opts.WorkitemType)
+	addListCondition(&conditions, "statusStage", "statusStage", "list", opts.StatusStage)
+	addListCondition(&conditions, "tag", "tag", "multiList", opts.Tag)
+	addListCondition(&conditions, "option", "priority", "list", opts.Priority)
+	addStringCondition(&conditions, "string", "subject-description", opts.SubjectDescription)
+	addDateCondition(&conditions, "date", "finishTime", opts.FinishTimeAfter, opts.FinishTimeBefore)
+	addDateCondition(&conditions, "date", "updateStatusAt", opts.UpdateStatusAtAfter, opts.UpdateStatusAtBefore)
+	if len(conditions) == 0 {
+		return ""
+	}
+	body, err := json.Marshal(map[string]any{"conditionGroups": []any{conditions}})
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+func addStringCondition(conditions *[]map[string]any, className, fieldIdentifier, value string) {
+	if value == "" {
+		return
+	}
+	*conditions = append(*conditions, map[string]any{"className": className, "fieldIdentifier": fieldIdentifier, "format": "input", "operator": "CONTAINS", "toValue": nil, "value": []string{value}})
+}
+
+func addListCondition(conditions *[]map[string]any, className, fieldIdentifier, format, value string) {
+	if value == "" {
+		return
+	}
+	*conditions = append(*conditions, map[string]any{"className": className, "fieldIdentifier": fieldIdentifier, "format": format, "operator": "CONTAINS", "toValue": nil, "value": splitCSV(value)})
+}
+
+func addDateCondition(conditions *[]map[string]any, className, fieldIdentifier, after, before string) {
+	if after == "" && before == "" {
+		return
+	}
+	var value any
+	if after != "" {
+		value = []string{after + " 00:00:00"}
+	}
+	var toValue any
+	if before != "" {
+		toValue = before + " 23:59:59"
+	}
+	*conditions = append(*conditions, map[string]any{"className": className, "fieldIdentifier": fieldIdentifier, "format": "input", "operator": "BETWEEN", "toValue": toValue, "value": value})
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			values = append(values, trimmed)
+		}
+	}
+	return values
 }
 
 func projectsPath(baseURL, organizationID string) string {

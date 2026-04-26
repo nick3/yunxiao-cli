@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,32 @@ import (
 )
 
 func TestProjexProjectsListCallsYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/projects:search", r.URL.Path)
+		w.Header().Set("x-next-page", "2")
+		w.Header().Set("x-per-page", "5")
+		fmt.Fprint(w, `[{"id":"proj-1","name":"demo"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--organization-id", "org-123", "--page-size", "1", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"proj-1","name":"demo"}],"meta":{"pagination":{"next_token":"2","page_size":5,"has_more":true}},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListAcceptsWrapperSearchResponse(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 
@@ -262,7 +289,8 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"category":"Task","spaceId":"proj-1","perPage":2}`, string(body))
-		fmt.Fprint(w, `{"data":[{"id":"wi-1","subject":"fix bug"}],"nextPage":"3"}`)
+		w.Header().Set("x-next-page", "3")
+		fmt.Fprint(w, `[{"id":"wi-1","subject":"fix bug"}]`)
 	}))
 	defer server.Close()
 
@@ -277,6 +305,41 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"version":"v1","data":[{"id":"wi-1","subject":"fix bug"}],"meta":{"pagination":{"next_token":"3","page_size":2,"has_more":true}},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemsListHelpExposesRequiredFlags(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "workitems", "list", "--help", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.Empty(t, stderr.String())
+
+	var envelope struct {
+		Data struct {
+			Flags []struct {
+				Name string `json:"name"`
+			} `json:"flags"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &envelope))
+
+	flagNames := make(map[string]bool, len(envelope.Data.Flags))
+	for _, flag := range envelope.Data.Flags {
+		flagNames[flag.Name] = true
+	}
+	require.True(t, flagNames["organization-id"])
+	require.True(t, flagNames["category"])
+	require.True(t, flagNames["space-id"])
+	require.True(t, flagNames["page-size"])
+	require.True(t, flagNames["page-token"])
 }
 
 func TestProjexWorkitemGetCallsYunxiaoAPI(t *testing.T) {

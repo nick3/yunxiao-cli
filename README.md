@@ -133,30 +133,27 @@ export YUNXIAO_ACCESS_TOKEN=<your-access-token>
 
 ```bash
 yunxiao org current --json
+yunxiao org members list --organization-id <org-id> --json
 ```
 
 ### 查看 Codeup 仓库
 
 ```bash
 yunxiao codeup repos list --organization-id <org-id> --json
-```
-
-获取单个仓库：
-
-```bash
 yunxiao codeup repo get --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup branches list --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup commits list --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup file get --organization-id <org-id> --repo-id <repo-id> --path <file-path> --ref <ref> --json
+yunxiao codeup compare get --organization-id <org-id> --repo-id <repo-id> --from <ref> --to <ref> --json
 ```
 
 ### 查看流水线
 
 ```bash
 yunxiao flow pipelines list --organization-id <org-id> --json
-```
-
-获取单个流水线：
-
-```bash
 yunxiao flow pipeline get --organization-id <org-id> --pipeline-id <pipeline-id> --json
+yunxiao flow runs list --organization-id <org-id> --pipeline-id <pipeline-id> --json
+yunxiao flow run get --organization-id <org-id> --pipeline-id <pipeline-id> --run-id <run-id> --json
 ```
 
 ### 查看 Projex 项目和工作项
@@ -169,6 +166,8 @@ yunxiao projex workitem get --organization-id <org-id> --workitem-id <workitem-i
 yunxiao projex sprints list --organization-id <org-id> --project-id <project-id> --json
 # 可选：通过 --status <status-list> 过滤迭代状态
 ```
+
+Projex 当前提供项目/空间内列表枚举和已知 ID 详情查询。`workitems list` 仍需要明确的 `--space-id` 和 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件；跨项目个人待办、“未完成”业务语义和“本周完成”聚合查询尚未成为公共命令契约。
 
 ### 查看制品仓库和制品
 
