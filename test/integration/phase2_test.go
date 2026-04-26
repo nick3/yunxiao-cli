@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,181 @@ func TestProjexProjectsListAcceptsWrapperSearchResponse(t *testing.T) {
 	err := cmd.Run()
 	require.NoError(t, err)
 	require.JSONEq(t, `{"version":"v1","data":[{"id":"proj-1","name":"demo"}],"meta":{"pagination":{"next_token":"2","page_size":1,"has_more":true}},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListMineResolvesCurrentUserAndOrganization(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oapi/v1/platform/user":
+			require.Equal(t, http.MethodGet, r.Method)
+			fmt.Fprint(w, `{"id":"user-1","name":"Nick","lastOrganization":"org-123"}`)
+		case "/oapi/v1/projex/organizations/org-123/projects:search":
+			require.Equal(t, http.MethodPost, r.Method)
+			var payload map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			require.Equal(t, float64(2), payload["perPage"])
+			var extraConditions struct {
+				ConditionGroups [][]struct {
+					ClassName       string   `json:"className"`
+					FieldIdentifier string   `json:"fieldIdentifier"`
+					Format          string   `json:"format"`
+					Operator        string   `json:"operator"`
+					Value           []string `json:"value"`
+				} `json:"conditionGroups"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(payload["extraConditions"].(string)), &extraConditions))
+			require.Len(t, extraConditions.ConditionGroups, 1)
+			require.Len(t, extraConditions.ConditionGroups[0], 1)
+			condition := extraConditions.ConditionGroups[0][0]
+			require.Equal(t, "user", condition.ClassName)
+			require.Equal(t, "users", condition.FieldIdentifier)
+			require.Equal(t, "multiList", condition.Format)
+			require.Equal(t, "CONTAINS", condition.Operator)
+			require.Equal(t, []string{"user-1"}, condition.Value)
+			fmt.Fprint(w, `[{"id":"proj-1","name":"demo"}]`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--mine", "--page-size", "2", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"proj-1","name":"demo"}],"meta":{"pagination":{"next_token":null,"page_size":2,"has_more":false}},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListMineRejectsMissingCurrentUserID(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/oapi/v1/platform/user", r.URL.Path)
+		fmt.Fprint(w, `{"lastOrganization":"org-123"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--mine", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "current user response has no id")
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListRejectsMineWithScenarioFilter(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--mine", "--scenario-filter", "manage", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "mine cannot be used")
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListRejectsUserIDWithoutScenarioFilter(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--user-id", "user-1", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "scenario_filter is required")
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectsListSendsMCPCompatibleFilters(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/projects:search", r.URL.Path)
+
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, float64(10), payload["perPage"])
+		require.Equal(t, float64(3), payload["page"])
+		require.Equal(t, "name", payload["orderBy"])
+		require.Equal(t, "asc", payload["sort"])
+
+		var conditions struct {
+			ConditionGroups [][]struct {
+				ClassName       string   `json:"className"`
+				FieldIdentifier string   `json:"fieldIdentifier"`
+				Format          string   `json:"format"`
+				Operator        string   `json:"operator"`
+				ToValue         *string  `json:"toValue"`
+				Value           []string `json:"value"`
+			} `json:"conditionGroups"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(payload["conditions"].(string)), &conditions))
+		require.Len(t, conditions.ConditionGroups, 1)
+		fields := map[string][]string{}
+		for _, condition := range conditions.ConditionGroups[0] {
+			fields[condition.FieldIdentifier] = condition.Value
+		}
+		require.Equal(t, []string{"demo"}, fields["name"])
+		require.Equal(t, []string{"active"}, fields["status"])
+		require.Equal(t, []string{"creator-1"}, fields["creator"])
+		require.Equal(t, []string{"admin-1"}, fields["project.admin"])
+		require.Equal(t, []string{"normal"}, fields["logicalStatus"])
+
+		fmt.Fprint(w, `[{"id":"proj-1","name":"demo"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "projects", "list", "--organization-id", "org-123", "--page-size", "10", "--page-token", "3", "--name", "demo", "--status", "active", "--created-after", "2026-04-01", "--created-before", "2026-04-26", "--creator", "creator-1", "--admin-user-id", "admin-1", "--logical-status", "normal", "--order-by", "name", "--sort", "asc", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"proj-1","name":"demo"}],"meta":{"pagination":{"next_token":null,"page_size":10,"has_more":false}},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
 }
 
@@ -289,7 +465,11 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"category":"Task","spaceId":"proj-1","perPage":2}`, string(body))
+		w.Header().Set("x-page", "1")
 		w.Header().Set("x-next-page", "3")
+		w.Header().Set("x-prev-page", "1")
+		w.Header().Set("x-total-pages", "8")
+		w.Header().Set("x-total", "15")
 		fmt.Fprint(w, `[{"id":"wi-1","subject":"fix bug"}]`)
 	}))
 	defer server.Close()
@@ -303,7 +483,7 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 
 	err := cmd.Run()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"version":"v1","data":[{"id":"wi-1","subject":"fix bug"}],"meta":{"pagination":{"next_token":"3","page_size":2,"has_more":true}},"error":null}`, stdout.String())
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"wi-1","subject":"fix bug"}],"meta":{"pagination":{"next_token":"3","page_size":2,"has_more":true,"page":1,"total_pages":8,"total":15,"prev_token":"1"}},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
 }
 

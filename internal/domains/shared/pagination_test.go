@@ -23,6 +23,32 @@ func TestDecodeSearchListRawArrayUsesHeaderPagination(t *testing.T) {
 	require.True(t, pagination.HasMore)
 }
 
+func TestDecodeSearchListRawArrayIncludesHeaderTotals(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("x-page", "2")
+	headers.Set("x-next-page", "3")
+	headers.Set("x-prev-page", "1")
+	headers.Set("x-per-page", "5")
+	headers.Set("x-total-pages", "10")
+	headers.Set("x-total", "47")
+
+	_, pagination, errDetail := DecodeSearchList(json.RawMessage(`[{}]`), headers, 20)
+
+	require.Nil(t, errDetail)
+	require.NotNil(t, pagination.Page)
+	require.Equal(t, 2, *pagination.Page)
+	require.NotNil(t, pagination.NextToken)
+	require.Equal(t, "3", *pagination.NextToken)
+	require.NotNil(t, pagination.PrevToken)
+	require.Equal(t, "1", *pagination.PrevToken)
+	require.Equal(t, 5, pagination.PageSize)
+	require.NotNil(t, pagination.TotalPages)
+	require.Equal(t, 10, *pagination.TotalPages)
+	require.NotNil(t, pagination.Total)
+	require.Equal(t, 47, *pagination.Total)
+	require.True(t, pagination.HasMore)
+}
+
 func TestDecodeSearchListRawArrayMissingNextPageHasNoContinuation(t *testing.T) {
 	data, pagination, errDetail := DecodeSearchList(json.RawMessage(`[]`), http.Header{}, 20)
 
@@ -55,7 +81,7 @@ func TestDecodeSearchListWrapperUsesBodyPagination(t *testing.T) {
 	require.Equal(t, []map[string]any{{"id": "tc-1"}}, data)
 	require.NotNil(t, pagination.NextToken)
 	require.Equal(t, "body-token", *pagination.NextToken)
-	require.Equal(t, 20, pagination.PageSize)
+	require.Equal(t, 5, pagination.PageSize)
 	require.True(t, pagination.HasMore)
 }
 

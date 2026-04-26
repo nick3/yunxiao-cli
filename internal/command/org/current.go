@@ -3,7 +3,6 @@ package org
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 
 	"github.com/aliyun/yunxiao-cli/internal/auth"
@@ -12,7 +11,6 @@ import (
 	"github.com/aliyun/yunxiao-cli/internal/command/validation"
 	"github.com/aliyun/yunxiao-cli/internal/config"
 	orgdomain "github.com/aliyun/yunxiao-cli/internal/domains/org"
-	"github.com/aliyun/yunxiao-cli/internal/domains/shared"
 	"github.com/aliyun/yunxiao-cli/internal/httpx"
 	"github.com/aliyun/yunxiao-cli/internal/model/output"
 	"github.com/spf13/cobra"
@@ -89,8 +87,7 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var data any
-	errDetail := shared.RequestJSON(context.Background(), client, http.MethodGet, "/oapi/v1/platform/user", &data)
+	currentUser, errDetail := orgdomain.GetCurrentUser(context.Background(), client)
 	if errDetail != nil {
 		if errDetail.Code == "RESPONSE_DECODE_FAILED" {
 			fmt.Fprintf(os.Stderr, "[ERROR] org current response decode failed: %s\n", errDetail.Message)
@@ -102,7 +99,7 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if code := cli.WriteResult(data, meta, format); code != cli.ExitSuccess {
+	if code := cli.WriteResult(currentUser.Data, meta, format); code != cli.ExitSuccess {
 		os.Exit(code)
 	}
 	return nil

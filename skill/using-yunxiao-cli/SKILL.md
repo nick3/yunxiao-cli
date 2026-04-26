@@ -41,7 +41,7 @@ If `yunxiao` is not installed on `PATH` and you are inside this repository, use 
 | Auth | Automation should use `YUNXIAO_ACCESS_TOKEN`; missing token maps to `AUTH_FAILED` / exit 3. |
 | Organization | Prefer explicit `--organization-id`; env/config fallback may exist. |
 | Page size | `--page-size` must be positive integer; invalid values are `PARAM_INVALID` / exit 2 before auth. |
-| Pagination | Follow `meta.pagination.next_token` only when `meta.pagination.has_more` is true. |
+| Pagination | Follow `meta.pagination.next_token` only when `meta.pagination.has_more` is true; use optional `meta.pagination.total` for counts when present. |
 | Testplans | `testhub testplans list` is not paginated; do not pass `--page-size` or `--page-token`. |
 | Raw request | Phase 2 raw is read-only: only `--method GET` and `--path /oapi/...`. |
 
@@ -77,6 +77,8 @@ yunxiao flow pipeline get --organization-id <org> --pipeline-id <pipeline> --jso
 yunxiao flow runs list --organization-id <org> --pipeline-id <pipeline> --json
 yunxiao flow run get --organization-id <org> --pipeline-id <pipeline> --run-id <run> --json
 yunxiao projex projects list --organization-id <org> --json
+# 中心站可省略 --organization-id；若 lastOrganizationId 为空会返回 PARAM_REQUIRED。当前账号参与项目可用：
+yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org> --project-id <project> --json
 yunxiao projex workitems list --organization-id <org> --category <category> --space-id <space> --json
 yunxiao projex workitem get --organization-id <org> --workitem-id <workitem> --json
@@ -93,7 +95,7 @@ yunxiao raw request --method GET --path /oapi/... --json
 
 ## Projex Scope
 
-Projex commands currently support project/space-scoped list enumeration and known-ID detail reads. `projex workitems list` requires explicit `--organization-id`, `--category`, and `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`. Do not assume cross-project personal todo search, unfinished-state detection, or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
+Projex commands currently support project/space-scoped list enumeration and known-ID detail reads. `projex projects list` can auto-resolve the central-edition organization from `org current.lastOrganizationId`, supports MCP-compatible filters such as `--name`, `--status`, `--admin-user-id`, `--scenario-filter`, `--user-id`, `--advanced-conditions`, and `--extra-conditions`, and exposes `--mine` for projects participated in by the current user. `--mine` is mutually exclusive with explicit `--scenario-filter` / `--user-id`; `--advanced-conditions` overrides basic project filters, while `--scenario-filter` plus `--user-id` overrides `--extra-conditions`. `projex workitems list` requires explicit `--organization-id`, `--category`, and `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`. Do not assume cross-project personal todo search, unfinished-state detection, or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
 
 ## Parsing Pattern
 
@@ -140,6 +142,8 @@ done
 ```
 
 Do not use this loop for `testhub testplans list` because it has no pagination contract. Consume its `.data` array directly and ignore `meta.pagination` for that command.
+
+When you only need a count, first check `meta.pagination.total`. It is optional and appears only when the upstream API exposes total metadata, but it avoids fetching every page just to count matches.
 
 ## Error Handling
 

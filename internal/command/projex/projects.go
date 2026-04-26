@@ -10,6 +10,7 @@ import (
 	"github.com/aliyun/yunxiao-cli/internal/command/flagmeta"
 	"github.com/aliyun/yunxiao-cli/internal/command/validation"
 	"github.com/aliyun/yunxiao-cli/internal/config"
+	orgdomain "github.com/aliyun/yunxiao-cli/internal/domains/org"
 	projexdomain "github.com/aliyun/yunxiao-cli/internal/domains/projex"
 	"github.com/aliyun/yunxiao-cli/internal/httpx"
 	"github.com/aliyun/yunxiao-cli/internal/model/output"
@@ -42,6 +43,8 @@ func newProjectsListCmd() *cobra.Command {
 	var organizationID string
 	var pageSize int
 	var pageToken string
+	var mine bool
+	var opts projexdomain.ProjectListOptions
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -49,20 +52,40 @@ func newProjectsListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format := cli.GetOutputFormat()
 			meta := &output.Meta{}
-			orgID := config.GetOrganizationID(organizationID)
-			if orgID == "" {
-				exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "organization_id is required")
-				return nil
-			}
 			if errDetail := validation.PageSize(pageSize); errDetail != nil {
 				os.Exit(cli.WriteError(errDetail, meta, format))
+				return nil
+			}
+			if mine && (opts.ScenarioFilter != "" || opts.UserID != "") {
+				exitWithError(format, meta, "PARAM_INVALID", "param", false, "mine cannot be used with scenario_filter or user_id")
+				return nil
+			}
+			if mine {
+				opts.ScenarioFilter = "participate"
+				opts.UserID = "self"
+			}
+			if opts.UserID != "" && opts.ScenarioFilter == "" {
+				exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "scenario_filter is required when user_id is set")
+				return nil
+			}
+			if !validProjectScenarioFilter(opts.ScenarioFilter) {
+				exitWithError(format, meta, "PARAM_INVALID", "param", false, "scenario_filter must be one of manage, participate, or favorite")
+				return nil
+			}
+			if opts.ScenarioFilter != "" && opts.UserID == "" {
+				exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "user_id is required when scenario_filter is set")
 				return nil
 			}
 			client, ok := newAPIClient(cmd, format, meta)
 			if !ok {
 				return nil
 			}
-			data, pagination, errDetail := projexdomain.ListProjects(context.Background(), client, orgID, pageSize, pageToken)
+			orgID, errDetail := resolveProjexProjectListContext(context.Background(), client, organizationID, &opts)
+			if errDetail != nil {
+				os.Exit(cli.WriteError(errDetail, meta, format))
+				return nil
+			}
+			data, pagination, errDetail := projexdomain.ListProjects(context.Background(), client, orgID, pageSize, pageToken, opts)
 			if errDetail != nil {
 				fmt.Fprintf(os.Stderr, "[ERROR] project list failed: %s\n", errDetail.Message)
 				os.Exit(cli.WriteError(errDetail, meta, format))
@@ -76,10 +99,58 @@ func newProjectsListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
+	cmd.Flags().StringVar(&opts.Name, "name", "", "Project name keyword filter")
+	cmd.Flags().StringVar(&opts.Status, "status", "", "Comma-separated project status IDs")
+	cmd.Flags().StringVar(&opts.CreatedAfter, "created-after", "", "Creation date lower bound")
+	cmd.Flags().StringVar(&opts.CreatedBefore, "created-before", "", "Creation date upper bound")
+	cmd.Flags().StringVar(&opts.Creator, "creator", "", "Comma-separated creator IDs")
+	cmd.Flags().StringVar(&opts.AdminUserID, "admin-user-id", "", "Comma-separated project administrator IDs")
+	cmd.Flags().StringVar(&opts.LogicalStatus, "logical-status", "", "Project logical status")
+	cmd.Flags().StringVar(&opts.AdvancedConditions, "advanced-conditions", "", "Raw Projex conditions JSON")
+	cmd.Flags().StringVar(&opts.ExtraConditions, "extra-conditions", "", "Raw Projex extraConditions JSON")
+	cmd.Flags().StringVar(&opts.OrderBy, "order-by", "", "Project order field")
+	cmd.Flags().StringVar(&opts.Sort, "sort", "", "Sort direction")
+	cmd.Flags().StringVar(&opts.ScenarioFilter, "scenario-filter", "", "Project scenario filter: manage, participate, or favorite")
+	cmd.Flags().StringVar(&opts.UserID, "user-id", "", "User ID for scenario filter, or self for current user")
+	cmd.Flags().BoolVar(&mine, "mine", false, "List projects participated in by the current user")
 	cmd.Flags().IntVar(&pageSize, "page-size", 20, "Page size")
 	cmd.Flags().StringVar(&pageToken, "page-token", "", "Page token")
-	flagmeta.MustMarkRequired(cmd, "organization-id")
 	return cmd
+}
+
+func validProjectScenarioFilter(value string) bool {
+	switch value {
+	case "", "manage", "participate", "favorite":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolveProjexProjectListContext(ctx context.Context, client *httpx.Client, flagValue string, opts *projexdomain.ProjectListOptions) (string, *output.ErrorDetail) {
+	orgID := config.GetOrganizationID(flagValue)
+	needsCurrentUser := (!config.IsRegionBaseURL(client.BaseURL) && orgID == "") || opts.UserID == "self"
+	if !needsCurrentUser {
+		return orgID, nil
+	}
+
+	currentUser, errDetail := orgdomain.GetCurrentUser(ctx, client)
+	if errDetail != nil {
+		return "", errDetail
+	}
+	if opts.UserID == "self" {
+		if currentUser.UserID == "" {
+			return "", &output.ErrorDetail{Code: "PARAM_REQUIRED", Category: "param", Retryable: false, Message: "user_id is required because current user response has no id"}
+		}
+		opts.UserID = currentUser.UserID
+	}
+	if orgID == "" && !config.IsRegionBaseURL(client.BaseURL) {
+		if currentUser.LastOrganizationID == "" {
+			return "", &output.ErrorDetail{Code: "PARAM_REQUIRED", Category: "param", Retryable: false, Message: "organization_id is required because current user has no lastOrganization"}
+		}
+		orgID = currentUser.LastOrganizationID
+	}
+	return orgID, nil
 }
 
 func newProjectGetCmd() *cobra.Command {

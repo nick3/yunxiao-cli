@@ -126,6 +126,7 @@ func TestPhase1GapCommandHelpJSONIncludesRequiredFlags(t *testing.T) {
 		{name: "codeup compare get", args: []string{"codeup", "compare", "get"}, required: []string{"organization-id", "repo-id", "from", "to"}, optional: []string{"source-type", "target-type", "straight"}},
 		{name: "flow runs list", args: []string{"flow", "runs", "list"}, required: []string{"organization-id", "pipeline-id"}, optional: []string{"page-size", "page-token", "start-time", "end-time", "status", "trigger-mode"}},
 		{name: "flow run get", args: []string{"flow", "run", "get"}, required: []string{"organization-id", "pipeline-id", "run-id"}},
+		{name: "projex projects list", args: []string{"projex", "projects", "list"}, optional: []string{"organization-id", "mine", "scenario-filter", "user-id", "name", "status", "created-after", "created-before", "admin-user-id", "advanced-conditions", "extra-conditions", "order-by", "sort"}},
 		{name: "projex workitems list", args: []string{"projex", "workitems", "list"}, required: []string{"organization-id", "category", "space-id"}, optional: []string{"status", "assigned-to", "finish-time-after", "update-status-at-after", "advanced-conditions", "order-by", "sort"}},
 	}
 

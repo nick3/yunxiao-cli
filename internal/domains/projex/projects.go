@@ -13,8 +13,20 @@ import (
 	"github.com/aliyun/yunxiao-cli/internal/model/output"
 )
 
-func ListProjects(ctx context.Context, client *httpx.Client, organizationID string, pageSize int, pageToken string) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
+func ListProjects(ctx context.Context, client *httpx.Client, organizationID string, pageSize int, pageToken string, opts ProjectListOptions) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
 	payload := map[string]any{"perPage": pageSize}
+	if conditions := buildProjectConditions(opts); conditions != "" {
+		payload["conditions"] = conditions
+	}
+	if extraConditions := buildProjectExtraConditions(opts); extraConditions != "" {
+		payload["extraConditions"] = extraConditions
+	}
+	if opts.OrderBy != "" {
+		payload["orderBy"] = opts.OrderBy
+	}
+	if opts.Sort != "" {
+		payload["sort"] = opts.Sort
+	}
 	shared.ApplyPageToken(payload, pageToken)
 	return searchList(ctx, client, projectsPath(client.BaseURL, organizationID)+":search", payload, pageSize)
 }
@@ -26,6 +38,22 @@ func GetProject(ctx context.Context, client *httpx.Client, organizationID, proje
 		return nil, errDetail
 	}
 	return data, nil
+}
+
+type ProjectListOptions struct {
+	Name               string
+	Status             string
+	CreatedAfter       string
+	CreatedBefore      string
+	Creator            string
+	AdminUserID        string
+	LogicalStatus      string
+	AdvancedConditions string
+	ExtraConditions    string
+	OrderBy            string
+	Sort               string
+	ScenarioFilter     string
+	UserID             string
 }
 
 type WorkitemListOptions struct {
@@ -106,6 +134,42 @@ func searchList(ctx context.Context, client *httpx.Client, path string, payload 
 	return shared.DecodeSearchList(body, headers, pageSize)
 }
 
+func buildProjectConditions(opts ProjectListOptions) string {
+	if opts.AdvancedConditions != "" {
+		return opts.AdvancedConditions
+	}
+	conditions := make([]map[string]any, 0)
+	addStringCondition(&conditions, "string", "name", opts.Name)
+	addListCondition(&conditions, "status", "status", "list", opts.Status)
+	addDateCondition(&conditions, "date", "gmtCreate", opts.CreatedAfter, opts.CreatedBefore)
+	addListCondition(&conditions, "user", "creator", "list", opts.Creator)
+	addListCondition(&conditions, "user", "project.admin", "multiList", opts.AdminUserID)
+	addListCondition(&conditions, "string", "logicalStatus", "list", opts.LogicalStatus)
+	return marshalConditionGroups(conditions)
+}
+
+func buildProjectExtraConditions(opts ProjectListOptions) string {
+	if opts.ScenarioFilter == "" || opts.UserID == "" {
+		return opts.ExtraConditions
+	}
+	fieldIdentifier := ""
+	switch opts.ScenarioFilter {
+	case "manage":
+		fieldIdentifier = "project.admin"
+	case "participate":
+		fieldIdentifier = "users"
+	case "favorite":
+		fieldIdentifier = "collectMembers"
+	default:
+		return opts.ExtraConditions
+	}
+	body, err := json.Marshal(map[string]any{"conditionGroups": []any{[]map[string]any{{"className": "user", "fieldIdentifier": fieldIdentifier, "format": "multiList", "operator": "CONTAINS", "value": []string{opts.UserID}}}}})
+	if err != nil {
+		return opts.ExtraConditions
+	}
+	return string(body)
+}
+
 func buildWorkitemConditions(opts WorkitemListOptions) string {
 	if opts.AdvancedConditions != "" {
 		return opts.AdvancedConditions
@@ -125,6 +189,10 @@ func buildWorkitemConditions(opts WorkitemListOptions) string {
 	addStringCondition(&conditions, "string", "subject-description", opts.SubjectDescription)
 	addDateCondition(&conditions, "date", "finishTime", opts.FinishTimeAfter, opts.FinishTimeBefore)
 	addDateCondition(&conditions, "date", "updateStatusAt", opts.UpdateStatusAtAfter, opts.UpdateStatusAtBefore)
+	return marshalConditionGroups(conditions)
+}
+
+func marshalConditionGroups(conditions []map[string]any) string {
 	if len(conditions) == 0 {
 		return ""
 	}

@@ -3,6 +3,10 @@
   "data": {
     "id": "user-001",
     "name": "agent-user",
+    "lastOrganization": "org-123",
+    "lastOrganizationId": "org-123",
+    "userId": "user-001",
+    "userName": "agent-user",
     "organization": {
       "id": "org-123",
       "name": "demo-org"

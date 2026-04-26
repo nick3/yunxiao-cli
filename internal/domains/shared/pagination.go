@@ -35,7 +35,10 @@ func DecodeSearchList(body json.RawMessage, headers http.Header, pageSize int) (
 		return nil, nil, decodeSearchError(err)
 	}
 	nextToken := StringToken(apiResp.NextPage)
-	return apiResp.Data, &output.Pagination{NextToken: nextToken, PageSize: pageSize, HasMore: nextToken != nil}, nil
+	pagination := SearchPaginationFromHeaders(headers, pageSize)
+	pagination.NextToken = nextToken
+	pagination.HasMore = nextToken != nil
+	return apiResp.Data, pagination, nil
 }
 
 func SearchPaginationFromHeaders(headers http.Header, fallbackPageSize int) *output.Pagination {
@@ -44,7 +47,27 @@ func SearchPaginationFromHeaders(headers http.Header, fallbackPageSize int) *out
 	if perPage, err := strconv.Atoi(strings.TrimSpace(headers.Get("x-per-page"))); err == nil && perPage > 0 {
 		pageSize = perPage
 	}
-	return &output.Pagination{NextToken: nextToken, PageSize: pageSize, HasMore: nextToken != nil}
+	return &output.Pagination{
+		NextToken:  nextToken,
+		PageSize:   pageSize,
+		HasMore:    nextToken != nil,
+		Page:       headerInt(headers, "x-page"),
+		TotalPages: headerInt(headers, "x-total-pages"),
+		Total:      headerInt(headers, "x-total"),
+		PrevToken:  StringToken(headers.Get("x-prev-page")),
+	}
+}
+
+func headerInt(headers http.Header, key string) *int {
+	raw := strings.TrimSpace(headers.Get(key))
+	if raw == "" {
+		return nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return nil
+	}
+	return &value
 }
 
 // ApplyPageToken sets the "page" key on a search payload, preferring an int when the token parses cleanly.
