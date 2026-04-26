@@ -43,9 +43,10 @@ func testEnv(overrides ...string) []string {
 func TestOrgCurrentAuthFailure(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
+	configDir := t.TempDir()
 
 	cmd := exec.Command(binary, "org", "current", "--json")
-	cmd.Env = testEnv()
+	cmd.Env = testEnv("YUNXIAO_CONFIG_FILE=" + configDir)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -67,6 +68,7 @@ func TestOrgCurrentAuthFailure(t *testing.T) {
 func TestOrgCurrentSuccess(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
+	configDir := t.TempDir()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/oapi/v1/platform/user", r.URL.Path)
@@ -78,6 +80,7 @@ func TestOrgCurrentSuccess(t *testing.T) {
 
 	cmd := exec.Command(binary, "org", "current", "--json", "--trace-id", "trace-success")
 	cmd.Env = testEnv(
+		"YUNXIAO_CONFIG_FILE="+configDir,
 		"YUNXIAO_ACCESS_TOKEN=valid-token",
 		"YUNXIAO_API_BASE_URL="+server.URL,
 	)
@@ -128,6 +131,7 @@ func TestOrgCurrentPrefersEnvTokenOverConfigToken(t *testing.T) {
 func TestOrgCurrentDecodeFailure(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
+	configDir := t.TempDir()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -137,6 +141,7 @@ func TestOrgCurrentDecodeFailure(t *testing.T) {
 
 	cmd := exec.Command(binary, "org", "current", "--json")
 	cmd.Env = testEnv(
+		"YUNXIAO_CONFIG_FILE="+configDir,
 		"YUNXIAO_ACCESS_TOKEN=valid-token",
 		"YUNXIAO_API_BASE_URL="+server.URL,
 	)
@@ -160,6 +165,7 @@ func TestOrgCurrentDecodeFailure(t *testing.T) {
 func TestOrgCurrentForbidden(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
+	configDir := t.TempDir()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -169,6 +175,7 @@ func TestOrgCurrentForbidden(t *testing.T) {
 
 	cmd := exec.Command(binary, "org", "current", "--json")
 	cmd.Env = testEnv(
+		"YUNXIAO_CONFIG_FILE="+configDir,
 		"YUNXIAO_ACCESS_TOKEN=valid-token",
 		"YUNXIAO_API_BASE_URL="+server.URL,
 	)
@@ -192,6 +199,7 @@ func TestOrgCurrentForbidden(t *testing.T) {
 func TestOrgCurrentTimeout(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
+	configDir := t.TempDir()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second)
@@ -202,6 +210,7 @@ func TestOrgCurrentTimeout(t *testing.T) {
 
 	cmd := exec.Command(binary, "org", "current", "--json", "--timeout", "1")
 	cmd.Env = testEnv(
+		"YUNXIAO_CONFIG_FILE="+configDir,
 		"YUNXIAO_ACCESS_TOKEN=valid-token",
 		"YUNXIAO_API_BASE_URL="+server.URL,
 	)

@@ -115,7 +115,7 @@ export YUNXIAO_ACCESS_TOKEN=<your-access-token>
 | `--region` / `YUNXIAO_REGION` | 区域选择；当前主要保留为全局参数，实际端点优先由 `YUNXIAO_API_BASE_URL` 决定 | 无 |
 | `--timeout` / `YUNXIAO_TIMEOUT` | 请求超时时间，单位秒 | `30` |
 | `YUNXIAO_ACCESS_TOKEN` | 云效访问令牌；优先级高于配置文件 | 无 |
-| `YUNXIAO_API_BASE_URL` | API 基础地址 | `https://devops.aliyuncs.com` |
+| `YUNXIAO_API_BASE_URL` | API 基础地址；中心站默认使用 OpenAPI 域名，Region 站请配置组织专属域名 | `https://openapi-rdc.aliyuncs.com` |
 | `YUNXIAO_REGION_DEFAULT_ORG_ID` | 区域版 endpoint 下的组织 ID 环境回退 | 无 |
 
 优先级从高到低：

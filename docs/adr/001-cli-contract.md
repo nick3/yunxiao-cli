@@ -134,7 +134,7 @@ Key variables:
 | `--region` | `YUNXIAO_REGION` | `region` | (none) |
 | `--timeout` | `YUNXIAO_TIMEOUT` | `timeout` | 30 |
 | - | `YUNXIAO_ACCESS_TOKEN` | `access_token` | (none, required) |
-| - | `YUNXIAO_API_BASE_URL` | `api_base_url` | `https://devops.aliyuncs.com` |
+| - | `YUNXIAO_API_BASE_URL` | `api_base_url` | `https://openapi-rdc.aliyuncs.com` |
 
 Rules:
 - `YUNXIAO_API_BASE_URL` takes absolute precedence over `--region` for endpoint resolution
