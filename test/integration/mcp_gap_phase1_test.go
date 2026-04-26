@@ -83,13 +83,13 @@ func TestCodeupFileGetCallsYunxiaoAPI(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/oapi/v1/codeup/repositories/repo-1/files/README.md", r.URL.Path)
+		require.Equal(t, "/oapi/v1/codeup/repositories/repo-1/files/src%2Fmain%2Ftest.java", r.URL.EscapedPath())
 		require.Equal(t, "main", r.URL.Query().Get("ref"))
-		fmt.Fprint(w, `{"fileName":"README.md","content":"IyBkZW1v"}`)
+		fmt.Fprint(w, `{"fileName":"test.java","content":"IyBkZW1v"}`)
 	}))
 	defer server.Close()
 
-	cmd := exec.Command(binary, "codeup", "file", "get", "--organization-id", "org-123", "--repo-id", "repo-1", "--path", "README.md", "--ref", "main", "--json")
+	cmd := exec.Command(binary, "codeup", "file", "get", "--organization-id", "org-123", "--repo-id", "repo-1", "--path", "src/main/test.java", "--ref", "main", "--json")
 	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
 
 	var stdout, stderr bytes.Buffer
@@ -97,7 +97,7 @@ func TestCodeupFileGetCallsYunxiaoAPI(t *testing.T) {
 	cmd.Stderr = &stderr
 
 	require.NoError(t, cmd.Run())
-	require.JSONEq(t, `{"version":"v1","data":{"fileName":"README.md","content":"IyBkZW1v"},"meta":{},"error":null}`, stdout.String())
+	require.JSONEq(t, `{"version":"v1","data":{"fileName":"test.java","content":"IyBkZW1v"},"meta":{},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
 }
 
@@ -105,29 +105,33 @@ func TestCodeupCompareGetCallsYunxiaoAPI(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodGet, r.Method)
-		require.Equal(t, "/oapi/v1/codeup/repositories/repo-1/compares", r.URL.Path)
-		query := r.URL.Query()
-		require.Equal(t, "main", query.Get("from"))
-		require.Equal(t, "feature", query.Get("to"))
-		require.Equal(t, "branch", query.Get("sourceType"))
-		require.Equal(t, "branch", query.Get("targetType"))
-		require.Equal(t, "true", query.Get("straight"))
-		fmt.Fprint(w, `{"commitCount":2,"commits":[{"id":"c1"}]}`)
-	}))
-	defer server.Close()
+	for _, straight := range []string{"true", "false"} {
+		t.Run("straight="+straight, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/codeup/repositories/repo-1/compares", r.URL.Path)
+				query := r.URL.Query()
+				require.Equal(t, "main", query.Get("from"))
+				require.Equal(t, "feature", query.Get("to"))
+				require.Equal(t, "branch", query.Get("sourceType"))
+				require.Equal(t, "branch", query.Get("targetType"))
+				require.Equal(t, straight, query.Get("straight"))
+				fmt.Fprint(w, `{"commitCount":2,"commits":[{"id":"c1"}]}`)
+			}))
+			defer server.Close()
 
-	cmd := exec.Command(binary, "codeup", "compare", "get", "--organization-id", "org-123", "--repo-id", "repo-1", "--from", "main", "--to", "feature", "--source-type", "branch", "--target-type", "branch", "--straight", "true", "--json")
-	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+			cmd := exec.Command(binary, "codeup", "compare", "get", "--organization-id", "org-123", "--repo-id", "repo-1", "--from", "main", "--to", "feature", "--source-type", "branch", "--target-type", "branch", "--straight="+straight, "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
 
-	require.NoError(t, cmd.Run())
-	require.JSONEq(t, `{"version":"v1","data":{"commitCount":2,"commits":[{"id":"c1"}]},"meta":{},"error":null}`, stdout.String())
-	require.Empty(t, stderr.String())
+			require.NoError(t, cmd.Run())
+			require.JSONEq(t, `{"version":"v1","data":{"commitCount":2,"commits":[{"id":"c1"}]},"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
 }
 
 func TestFlowRunsListCallsYunxiaoAPI(t *testing.T) {
@@ -258,10 +262,9 @@ func TestProjexWorkitemsListSendsMCPCompatibleFilters(t *testing.T) {
 		require.Equal(t, []string{"u1", "u2"}, fields["assignedTo"].Value)
 		require.Equal(t, "BETWEEN", fields["finishTime"].Operator)
 		require.Equal(t, []string{"2026-04-20 00:00:00"}, fields["finishTime"].Value)
-		require.Equal(t, "BETWEEN", fields["updateStatusAt"].Operator)
-		require.Nil(t, fields["updateStatusAt"].Value)
-		require.NotNil(t, fields["updateStatusAt"].ToValue)
-		require.Equal(t, "2026-04-25 23:59:59", *fields["updateStatusAt"].ToValue)
+		require.Equal(t, "LESS_THAN_OR_EQUAL", fields["updateStatusAt"].Operator)
+		require.Equal(t, []string{"2026-04-25 23:59:59"}, fields["updateStatusAt"].Value)
+		require.Nil(t, fields["updateStatusAt"].ToValue)
 
 		fmt.Fprint(w, `[{"id":"wi-1","subject":"fix bug"}]`)
 	}))

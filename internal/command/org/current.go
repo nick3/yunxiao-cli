@@ -47,6 +47,7 @@ func newMembersListCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "list", Short: "List organization members", RunE: func(cmd *cobra.Command, args []string) error {
 		format := cli.GetOutputFormat()
 		meta := &output.Meta{}
+		populateTraceID(cmd, meta)
 		orgID := config.GetOrganizationID(organizationID)
 		if orgID == "" {
 			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "organization_id is required")
@@ -105,14 +106,19 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func newAPIClient(cmd *cobra.Command, format cli.OutputFormat, meta *output.Meta) (*httpx.Client, bool) {
+func populateTraceID(cmd *cobra.Command, meta *output.Meta) {
 	traceID, _ := cmd.Flags().GetString("trace-id")
+	meta.TraceID = traceID
+}
+
+func newAPIClient(cmd *cobra.Command, format cli.OutputFormat, meta *output.Meta) (*httpx.Client, bool) {
+	populateTraceID(cmd, meta)
+	traceID := meta.TraceID
 	timeoutFlag := cmd.Flags().Lookup("timeout")
 	timeout, _ := cmd.Flags().GetInt("timeout")
 	timeout = config.GetTimeout(timeout, timeoutFlag != nil && timeoutFlag.Changed)
 	noRetry, _ := cmd.Flags().GetBool("no-retry")
 	quiet, _ := cmd.Flags().GetBool("quiet")
-	meta.TraceID = traceID
 	token, err := auth.GetAccessToken()
 	if err != nil {
 		exitWithError(format, meta, "AUTH_FAILED", "auth", false, err.Error())

@@ -31,6 +31,27 @@ func TestUnknownFlagReturnsJSONEnvelope(t *testing.T) {
 	require.Contains(t, stderr.String(), "unknown flag")
 }
 
+func TestOrgMembersListParameterErrorIncludesTraceID(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "org", "members", "list", "--json", "--trace-id", "trace-param")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"trace_id": "trace-param"`)
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Empty(t, stderr.String())
+}
+
 func TestUnknownCommandReturnsJSONEnvelope(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)

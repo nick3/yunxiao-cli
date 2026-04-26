@@ -221,15 +221,23 @@ func addDateCondition(conditions *[]map[string]any, className, fieldIdentifier, 
 	if after == "" && before == "" {
 		return
 	}
-	var value any
-	if after != "" {
-		value = []string{after + " 00:00:00"}
-	}
+
+	operator := "BETWEEN"
+	value := []string{}
 	var toValue any
-	if before != "" {
+	switch {
+	case after != "" && before != "":
+		value = []string{after + " 00:00:00"}
 		toValue = before + " 23:59:59"
+	case after != "":
+		operator = "GREATER_THAN_OR_EQUAL"
+		value = []string{after + " 00:00:00"}
+	case before != "":
+		operator = "LESS_THAN_OR_EQUAL"
+		value = []string{before + " 23:59:59"}
 	}
-	*conditions = append(*conditions, map[string]any{"className": className, "fieldIdentifier": fieldIdentifier, "format": "input", "operator": "BETWEEN", "toValue": toValue, "value": value})
+
+	*conditions = append(*conditions, map[string]any{"className": className, "fieldIdentifier": fieldIdentifier, "format": "input", "operator": operator, "toValue": toValue, "value": value})
 }
 
 func splitCSV(value string) []string {

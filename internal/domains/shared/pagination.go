@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -17,7 +18,7 @@ type SearchResponse struct {
 }
 
 func DecodeSearchList(body json.RawMessage, headers http.Header, pageSize int) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
-	body = json.RawMessage(strings.TrimSpace(string(body)))
+	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, nil, &output.ErrorDetail{Code: "EMPTY_RESPONSE", Category: "general", Retryable: false, Message: "upstream returned an empty response body for a search response"}
 	}

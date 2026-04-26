@@ -285,7 +285,8 @@ func newFileGetCmd() *cobra.Command {
 
 func newCompareGetCmd() *cobra.Command {
 	var organizationID, repoID string
-	var from, to, sourceType, targetType, straight string
+	var from, to, sourceType, targetType string
+	var straight bool
 
 	cmd := &cobra.Command{Use: "get", Short: "Compare two repository refs", RunE: func(cmd *cobra.Command, args []string) error {
 		format := cli.GetOutputFormat()
@@ -301,7 +302,11 @@ func newCompareGetCmd() *cobra.Command {
 		if !ok {
 			return nil
 		}
-		opts := codeupdomain.CompareOptions{From: from, To: to, SourceType: sourceType, TargetType: targetType, Straight: straight}
+		var straightPtr *bool
+		if cmd.Flags().Changed("straight") {
+			straightPtr = &straight
+		}
+		opts := codeupdomain.CompareOptions{From: from, To: to, SourceType: sourceType, TargetType: targetType, Straight: straightPtr}
 		data, errDetail := codeupdomain.GetCompare(context.Background(), client, orgID, repoID, opts)
 		if errDetail != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] compare lookup failed: %s\n", errDetail.Message)
@@ -319,7 +324,7 @@ func newCompareGetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&to, "to", "", "Target ref")
 	cmd.Flags().StringVar(&sourceType, "source-type", "", "Source ref type")
 	cmd.Flags().StringVar(&targetType, "target-type", "", "Target ref type")
-	cmd.Flags().StringVar(&straight, "straight", "", "Straight comparison flag")
+	cmd.Flags().BoolVar(&straight, "straight", false, "Use straight comparison")
 	flagmeta.MustMarkRequired(cmd, "organization-id", "repo-id", "from", "to")
 	return cmd
 }

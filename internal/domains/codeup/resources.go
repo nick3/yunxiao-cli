@@ -61,7 +61,9 @@ func GetCompare(ctx context.Context, client *httpx.Client, organizationID, repoI
 	query := url.Values{"from": []string{opts.From}, "to": []string{opts.To}}
 	setQuery(query, "sourceType", opts.SourceType)
 	setQuery(query, "targetType", opts.TargetType)
-	setQuery(query, "straight", opts.Straight)
+	if opts.Straight != nil {
+		query.Set("straight", strconv.FormatBool(*opts.Straight))
+	}
 	if errDetail := shared.RequestJSON(ctx, client, http.MethodGet, path+"?"+query.Encode(), &data); errDetail != nil {
 		return nil, errDetail
 	}
@@ -83,7 +85,7 @@ type CompareOptions struct {
 	To         string
 	SourceType string
 	TargetType string
-	Straight   string
+	Straight   *bool
 }
 
 func listRaw(ctx context.Context, client *httpx.Client, path string, pageSize int) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {
