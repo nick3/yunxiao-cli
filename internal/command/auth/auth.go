@@ -18,8 +18,8 @@ import (
 	"github.com/aliyun/yunxiao-cli/internal/model/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.yaml.in/yaml/v3"
 	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 )
 
 type statusData struct {
@@ -311,7 +311,12 @@ func writeConfigMap(path string, values map[string]any) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	removeTemp := true
+	defer func() {
+		if removeTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
 	if _, err := tmp.Write(body); err != nil {
 		_ = tmp.Close()
 		return err
@@ -323,7 +328,11 @@ func writeConfigMap(path string, values map[string]any) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	removeTemp = false
+	return nil
 }
 
 func configFilePath() (string, error) {

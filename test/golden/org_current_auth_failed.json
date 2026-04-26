@@ -6,7 +6,7 @@
     "code": "AUTH_FAILED",
     "category": "auth",
     "retryable": false,
-    "message": "YUNXIAO_ACCESS_TOKEN is missing or invalid",
+    "message": "access token is not configured; set YUNXIAO_ACCESS_TOKEN or run `yunxiao auth`",
     "upstream_status": null
   }
 }

@@ -14,5 +14,5 @@ func GetAccessToken() (string, error) {
 	if token := viper.GetString("access_token"); token != "" {
 		return token, nil
 	}
-	return "", fmt.Errorf("YUNXIAO_ACCESS_TOKEN is missing or invalid")
+	return "", fmt.Errorf("access token is not configured; set YUNXIAO_ACCESS_TOKEN or run `yunxiao auth`")
 }

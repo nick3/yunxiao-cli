@@ -53,7 +53,7 @@ func TestAuthTopLevelPromptsForVisibleTokenAndWritesConfig(t *testing.T) {
 
 	ptmx, err := pty.Start(cmd)
 	require.NoError(t, err)
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	var output bytes.Buffer
 	require.Eventually(t, func() bool {
@@ -191,6 +191,7 @@ func TestAuthLoginTokenStdinSkipVerifyWritesConfig(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 	configDir := t.TempDir()
+	require.NoError(t, os.Chmod(configDir, 0o755))
 
 	cmd := exec.Command(binary, "auth", "login", "--token-stdin", "--skip-verify", "--json")
 	cmd.Env = testEnv("YUNXIAO_CONFIG_FILE=" + configDir)
@@ -296,7 +297,7 @@ func TestAuthLoginTokenStdinVerifiesBeforeWriting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/oapi/v1/platform/user", r.URL.Path)
 		require.Equal(t, "valid-token", r.Header.Get("x-yunxiao-token"))
-		fmt.Fprint(w, `{"id":"user-1"}`)
+		_, _ = fmt.Fprint(w, `{"id":"user-1"}`)
 	}))
 	defer server.Close()
 
@@ -326,7 +327,7 @@ func TestAuthLoginVerificationFailureDoesNotWriteToken(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprint(w, `{"message":"bad token"}`)
+		_, _ = fmt.Fprint(w, `{"message":"bad token"}`)
 	}))
 	defer server.Close()
 
@@ -358,7 +359,7 @@ func TestAuthStatusVerifyUsesConfiguredToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/oapi/v1/platform/user", r.URL.Path)
 		require.Equal(t, "config-token", r.Header.Get("x-yunxiao-token"))
-		fmt.Fprint(w, `{"id":"user-1"}`)
+		_, _ = fmt.Fprint(w, `{"id":"user-1"}`)
 	}))
 	defer server.Close()
 

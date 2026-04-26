@@ -106,47 +106,53 @@ func TestAuthHelpJSONIncludesAuthFlags(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 
-	authCmd := exec.Command(binary, "auth", "--help", "--json")
-	authCmd.Env = testEnv()
+	t.Run("auth", func(t *testing.T) {
+		authCmd := exec.Command(binary, "auth", "--help", "--json")
+		authCmd.Env = testEnv()
 
-	var authStdout, authStderr bytes.Buffer
-	authCmd.Stdout = &authStdout
-	authCmd.Stderr = &authStderr
+		var stdout, stderr bytes.Buffer
+		authCmd.Stdout = &stdout
+		authCmd.Stderr = &stderr
 
-	err := authCmd.Run()
-	require.NoError(t, err)
-	require.Empty(t, authStderr.String())
-	require.Contains(t, authStdout.String(), `"path": "yunxiao auth"`)
-	require.Contains(t, authStdout.String(), `"name": "skip-verify"`)
-	require.Contains(t, authStdout.String(), `"name": "force"`)
+		err := authCmd.Run()
+		require.NoError(t, err)
+		require.Empty(t, stderr.String())
+		require.Contains(t, stdout.String(), `"path": "yunxiao auth"`)
+		require.Contains(t, stdout.String(), `"name": "skip-verify"`)
+		require.Contains(t, stdout.String(), `"name": "force"`)
+	})
 
-	loginCmd := exec.Command(binary, "auth", "login", "--help", "--json")
-	loginCmd.Env = testEnv()
+	t.Run("login", func(t *testing.T) {
+		loginCmd := exec.Command(binary, "auth", "login", "--help", "--json")
+		loginCmd.Env = testEnv()
 
-	var loginStdout, loginStderr bytes.Buffer
-	loginCmd.Stdout = &loginStdout
-	loginCmd.Stderr = &loginStderr
+		var stdout, stderr bytes.Buffer
+		loginCmd.Stdout = &stdout
+		loginCmd.Stderr = &stderr
 
-	err = loginCmd.Run()
-	require.NoError(t, err)
-	require.Empty(t, loginStderr.String())
-	require.Contains(t, loginStdout.String(), `"path": "yunxiao auth login"`)
-	require.Contains(t, loginStdout.String(), `"name": "token-stdin"`)
-	require.Contains(t, loginStdout.String(), `"name": "skip-verify"`)
-	require.Contains(t, loginStdout.String(), `"name": "force"`)
+		err := loginCmd.Run()
+		require.NoError(t, err)
+		require.Empty(t, stderr.String())
+		require.Contains(t, stdout.String(), `"path": "yunxiao auth login"`)
+		require.Contains(t, stdout.String(), `"name": "token-stdin"`)
+		require.Contains(t, stdout.String(), `"name": "skip-verify"`)
+		require.Contains(t, stdout.String(), `"name": "force"`)
+	})
 
-	statusCmd := exec.Command(binary, "auth", "status", "--help", "--json")
-	statusCmd.Env = testEnv()
+	t.Run("status", func(t *testing.T) {
+		statusCmd := exec.Command(binary, "auth", "status", "--help", "--json")
+		statusCmd.Env = testEnv()
 
-	var statusStdout, statusStderr bytes.Buffer
-	statusCmd.Stdout = &statusStdout
-	statusCmd.Stderr = &statusStderr
+		var stdout, stderr bytes.Buffer
+		statusCmd.Stdout = &stdout
+		statusCmd.Stderr = &stderr
 
-	err = statusCmd.Run()
-	require.NoError(t, err)
-	require.Empty(t, statusStderr.String())
-	require.Contains(t, statusStdout.String(), `"path": "yunxiao auth status"`)
-	require.Contains(t, statusStdout.String(), `"name": "verify"`)
+		err := statusCmd.Run()
+		require.NoError(t, err)
+		require.Empty(t, stderr.String())
+		require.Contains(t, stdout.String(), `"path": "yunxiao auth status"`)
+		require.Contains(t, stdout.String(), `"name": "verify"`)
+	})
 }
 
 func TestTestplansHelpDoesNotExposePageSize(t *testing.T) {
