@@ -8,12 +8,11 @@ import (
 )
 
 func GetAccessToken() (string, error) {
-	token := viper.GetString("access_token")
-	if token == "" {
-		token = os.Getenv("YUNXIAO_ACCESS_TOKEN")
+	if token := os.Getenv("YUNXIAO_ACCESS_TOKEN"); token != "" {
+		return token, nil
 	}
-	if token == "" {
-		return "", fmt.Errorf("YUNXIAO_ACCESS_TOKEN is missing or invalid")
+	if token := viper.GetString("access_token"); token != "" {
+		return token, nil
 	}
-	return token, nil
+	return "", fmt.Errorf("access token is not configured; set YUNXIAO_ACCESS_TOKEN or run `yunxiao auth`")
 }

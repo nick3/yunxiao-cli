@@ -14,7 +14,7 @@ func Init() error {
 	viper.SetEnvPrefix("YUNXIAO")
 	viper.AutomaticEnv()
 
-	viper.SetDefault("api_base_url", "https://devops.aliyuncs.com")
+	viper.SetDefault("api_base_url", "https://openapi-rdc.aliyuncs.com")
 	viper.SetDefault("region", "")
 	viper.SetDefault("timeout", 30)
 

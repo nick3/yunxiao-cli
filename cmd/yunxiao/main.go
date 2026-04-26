@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/aliyun/yunxiao-cli/internal/cli"
+	commandauth "github.com/aliyun/yunxiao-cli/internal/command/auth"
 	"github.com/aliyun/yunxiao-cli/internal/command/codeup"
 	"github.com/aliyun/yunxiao-cli/internal/command/flow"
 	"github.com/aliyun/yunxiao-cli/internal/command/meta"
@@ -32,6 +33,7 @@ func main() {
 	root := cli.NewRootCmd()
 	meta.InstallJSONHelp(root)
 	root.AddCommand(meta.NewCommandsCmd(root))
+	root.AddCommand(commandauth.NewAuthCmd())
 	root.AddCommand(org.NewOrgCmd())
 	root.AddCommand(codeup.NewCodeupCmd())
 	root.AddCommand(flow.NewFlowCmd())

@@ -22,25 +22,48 @@ yunxiao commands --json
 yunxiao <domain> <resource> <action> --help --json
 ```
 
-Never guess aliases such as `repo list`, `testplans --page`, `--format json`, `--limit`, or `--cursor`.
+`commands --json` returns a JSON envelope whose `.data` is a top-level command tree. Recursively walk every `.subcommands[]` node to find leaf commands; do not only read `.data[].path`.
+
+```bash
+yunxiao commands --json | jq -r '.. | objects | select(has("path") and ((.subcommands // []) | length == 0)) | .path'
+```
+
+If `yunxiao` is not installed on `PATH` and you are inside this repository, use `./yunxiao` or the absolute binary path. Never guess aliases such as `repo list`, `testplans --page`, `--format json`, `--limit`, or `--cursor`.
 
 ## Core Contract
 
 | Area | Rule |
 |---|---|
 | Machine output | Pass `--json`; parse stdout only. |
-| Failure output | Non-zero exits still write JSON envelope to stdout. |
+| Failure output | Non-zero exits still write JSON envelope to stdout; capture it before exiting. |
 | Diagnostics | stderr is only diagnostics; never use stderr as the structured error source. |
-| Auth | Use `YUNXIAO_ACCESS_TOKEN`; missing token maps to `AUTH_FAILED` / exit 3. |
+| Error fields | Branch on `.error.category`; log `.error.code`; treat missing `.error.retryable` as `false`. |
+| Auth | Automation should use `YUNXIAO_ACCESS_TOKEN`; missing token maps to `AUTH_FAILED` / exit 3. |
 | Organization | Prefer explicit `--organization-id`; env/config fallback may exist. |
 | Page size | `--page-size` must be positive integer; invalid values are `PARAM_INVALID` / exit 2 before auth. |
 | Pagination | Follow `meta.pagination.next_token` only when `meta.pagination.has_more` is true. |
 | Testplans | `testhub testplans list` is not paginated; do not pass `--page-size` or `--page-token`. |
 | Raw request | Phase 2 raw is read-only: only `--method GET` and `--path /oapi/...`. |
 
+## Auth Guidance
+
+Use `YUNXIAO_ACCESS_TOKEN` for automation. Human users may run `yunxiao auth` in a private real terminal for visible interactive token entry. Agents, CI, and scripts must not trigger the interactive path; use env or explicit stdin instead:
+
+```bash
+printf '%s\n' "$YUNXIAO_ACCESS_TOKEN" | yunxiao auth login --token-stdin --json
+yunxiao auth status --json
+yunxiao auth status --verify --json
+yunxiao auth logout --json
+```
+
+CI normally only needs the `YUNXIAO_ACCESS_TOKEN` environment variable, not `auth login`. Add `--force` to `auth login` only when intentionally overwriting an existing config token.
+
+Only add `--skip-verify` for explicit offline/internal-network cases; it saves an unverified token. Never pass tokens as command-line arguments. `YUNXIAO_ACCESS_TOKEN` takes precedence over config, and `auth logout` only removes the config token.
+
 ## Command Quick Reference
 
 ```bash
+yunxiao auth status --json
 yunxiao org current --json
 yunxiao codeup repos list --organization-id <org> --json
 yunxiao codeup repo get --organization-id <org> --repo-id <repo> --json
@@ -85,18 +108,31 @@ token=""
 while :; do
   args=(codeup repos list --organization-id "$ORG_ID" --page-size 100 --json)
   [ -n "$token" ] && args+=(--page-token "$token")
-  out=$(yunxiao "${args[@]}") || exit $?
+
+  out=$(yunxiao "${args[@]}" 2>diag)
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    jq '.error' <<<"$out" >&2
+    exit "$status"
+  fi
+
   jq -c '.data[]' <<<"$out"
   has_more=$(jq -r '.meta.pagination.has_more // false' <<<"$out")
-  [ "$has_more" = true ] || break
+  [ "$has_more" = "true" ] || break
+
   token=$(jq -r '.meta.pagination.next_token // empty' <<<"$out")
-  [ -n "$token" ] || break
- done
+  if [ -z "$token" ]; then
+    echo "pagination error: has_more=true but next_token is empty" >&2
+    exit 1
+  fi
+done
 ```
 
-Do not use this loop for `testhub testplans list` because it has no pagination contract.
+Do not use this loop for `testhub testplans list` because it has no pagination contract. Consume its `.data` array directly and ignore `meta.pagination` for that command.
 
 ## Error Handling
+
+Use `.error.category` for control flow and `.error.code` for logging or exact diagnostics. Do not compare `.error.code` to category names such as `param` or `auth`.
 
 | Category | Exit | Agent behavior |
 |---|---:|---|
@@ -117,6 +153,8 @@ Do not use this loop for `testhub testplans list` because it has no pagination c
 | Treating non-zero stdout as empty | Non-zero stdout still contains JSON envelope. |
 | Paginating `testhub testplans list` | Do not pass pagination flags; consume returned array. |
 | Retrying `PARAM_INVALID` or `AUTH_FAILED` blindly | Fix params or auth first. |
+| Exiting before parsing non-zero stdout | Capture stdout, then parse `.error` from the JSON envelope. |
+| Reading only top-level `.data[].path` from `commands --json` | Recursively walk `.subcommands[]` to discover leaf commands. |
 | Using `raw request` for POST/PUT/DELETE | Do not; Phase 2 raw only supports GET. |
 | Guessing `--page`, `--limit`, `--cursor` | Use `--page-size` and `--page-token` only where help exposes them. |
 
@@ -125,7 +163,9 @@ Do not use this loop for `testhub testplans list` because it has no pagination c
 Stop and inspect `commands --json` or `--help --json` if you are about to:
 
 - Invent a command path or flag.
+- Treat `commands --json` as a flat list instead of a command tree.
 - Use stderr as structured output.
+- Exit on a non-zero status before parsing stdout `.error`.
 - Add pagination to a command whose help does not expose it.
 - Use `raw request` to mutate data.
 - Retry without checking `error.category` and `error.retryable`.
