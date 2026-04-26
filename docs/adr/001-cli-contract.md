@@ -23,6 +23,8 @@ Phase 2 read-only additions:
 
 ```
 yunxiao projex projects list --organization-id <id>
+yunxiao projex projects list --mine
+# In central edition, projects list may omit --organization-id when org current returns lastOrganizationId.
 yunxiao projex project get --organization-id <id> --project-id <id>
 yunxiao projex workitems list --organization-id <id> --category <category> --space-id <id>
 yunxiao projex workitem get --organization-id <id> --workitem-id <id>
@@ -68,7 +70,11 @@ All `--json` output uses this envelope:
     "pagination": {
       "next_token": "<string or null>",
       "page_size": <int>,
-      "has_more": <bool>
+      "has_more": <bool>,
+      "page": <int, optional>,
+      "total_pages": <int, optional>,
+      "total": <int, optional>,
+      "prev_token": "<string, optional>"
     }
   },
   "error": {
@@ -149,10 +155,14 @@ JSON response always includes `meta.pagination`:
 - `next_token`: string or null
 - `page_size`: current page size
 - `has_more`: boolean
+- `page`: current page number when the upstream response exposes it
+- `total_pages`: total page count when the upstream response exposes it
+- `total`: total matched item count when the upstream response exposes it
+- `prev_token`: previous page token when the upstream response exposes it
 
 Rules:
 - `has_more: false` implies `next_token: null`
-- v1 does not guarantee `total` count
+- Total metadata is optional and must be omitted when the upstream response does not expose it
 - v1 does not return partial results; a list command either succeeds with a full page or fails entirely
 
 ## 6. Compatibility / Versioning

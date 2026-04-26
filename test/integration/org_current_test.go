@@ -74,7 +74,7 @@ func TestOrgCurrentSuccess(t *testing.T) {
 		require.Equal(t, "/oapi/v1/platform/user", r.URL.Path)
 		require.Equal(t, "valid-token", r.Header.Get("x-yunxiao-token"))
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"id":"user-001","name":"agent-user","organization":{"id":"org-123","name":"demo-org"}}`)
+		fmt.Fprint(w, `{"id":"user-001","name":"agent-user","lastOrganization":"org-123","organization":{"id":"org-123","name":"demo-org"}}`)
 	}))
 	defer server.Close()
 

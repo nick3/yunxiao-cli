@@ -133,42 +133,44 @@ export YUNXIAO_ACCESS_TOKEN=<your-access-token>
 
 ```bash
 yunxiao org current --json
+yunxiao org members list --organization-id <org-id> --json
 ```
 
 ### 查看 Codeup 仓库
 
 ```bash
 yunxiao codeup repos list --organization-id <org-id> --json
-```
-
-获取单个仓库：
-
-```bash
 yunxiao codeup repo get --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup branches list --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup commits list --organization-id <org-id> --repo-id <repo-id> --json
+yunxiao codeup file get --organization-id <org-id> --repo-id <repo-id> --path <file-path> --ref <ref> --json
+yunxiao codeup compare get --organization-id <org-id> --repo-id <repo-id> --from <ref> --to <ref> --json
 ```
 
 ### 查看流水线
 
 ```bash
 yunxiao flow pipelines list --organization-id <org-id> --json
-```
-
-获取单个流水线：
-
-```bash
 yunxiao flow pipeline get --organization-id <org-id> --pipeline-id <pipeline-id> --json
+yunxiao flow runs list --organization-id <org-id> --pipeline-id <pipeline-id> --json
+yunxiao flow run get --organization-id <org-id> --pipeline-id <pipeline-id> --run-id <run-id> --json
 ```
 
 ### 查看 Projex 项目和工作项
 
 ```bash
 yunxiao projex projects list --organization-id <org-id> --json
+# 中心站可省略 --organization-id，CLI 会使用 org current 返回的 lastOrganizationId；若 lastOrganizationId 为空会返回 PARAM_REQUIRED
+# 查看当前账号参与的项目（不可与 --scenario-filter / --user-id 混用）：
+yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org-id> --project-id <project-id> --json
 yunxiao projex workitems list --organization-id <org-id> --category <category> --space-id <space-id> --json
 yunxiao projex workitem get --organization-id <org-id> --workitem-id <workitem-id> --json
 yunxiao projex sprints list --organization-id <org-id> --project-id <project-id> --json
 # 可选：通过 --status <status-list> 过滤迭代状态
 ```
+
+Projex 当前提供项目/空间内列表枚举和已知 ID 详情查询。`projects list` 支持与 MCP server 对齐的 `--name`、`--status`、`--admin-user-id`、`--scenario-filter`、`--user-id`、`--advanced-conditions`、`--extra-conditions` 等查询条件；`--advanced-conditions` 会覆盖基础项目条件，`--scenario-filter` 与 `--user-id` 同时存在时会覆盖 `--extra-conditions`。`--mine` 等价于按当前用户参与项目过滤，且不可与显式 `--scenario-filter` / `--user-id` 混用。`workitems list` 仍需要明确的 `--space-id` 和 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件；跨项目个人待办、“未完成”业务语义和“本周完成”聚合查询尚未成为公共命令契约。
 
 ### 查看制品仓库和制品
 
@@ -298,9 +300,15 @@ fi
 {
   "next_token": "token-or-null",
   "page_size": 20,
-  "has_more": true
+  "has_more": true,
+  "page": 1,
+  "total_pages": 5,
+  "total": 95,
+  "prev_token": "previous-token"
 }
 ```
+
+其中 `page`、`total_pages`、`total`、`prev_token` 只有在上游接口返回对应分页头时才会出现；脚本应把这些字段当作可选字段处理。统计匹配数量时，优先读取 `meta.pagination.total`，无需为了计数拉取所有分页。
 
 循环示例：
 

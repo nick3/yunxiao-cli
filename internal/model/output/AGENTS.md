@@ -28,7 +28,7 @@ This package defines the public JSON envelope returned by Yunxiao CLI. These typ
 - Update golden JSON fixtures under `test/golden/` for intentional output shape changes.
 
 ### Common Patterns
-- Pagination uses `next_token`, `page_size`, and `has_more`.
+- Pagination always uses `next_token`, `page_size`, and `has_more`; `page`, `total_pages`, `total`, and `prev_token` are optional upstream metadata.
 - Error details use `code`, `category`, `retryable`, `message`, and `upstream_status`.
 
 ## Dependencies

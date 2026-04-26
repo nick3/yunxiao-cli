@@ -31,6 +31,27 @@ func TestUnknownFlagReturnsJSONEnvelope(t *testing.T) {
 	require.Contains(t, stderr.String(), "unknown flag")
 }
 
+func TestOrgMembersListParameterErrorIncludesTraceID(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "org", "members", "list", "--json", "--trace-id", "trace-param")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"trace_id": "trace-param"`)
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Empty(t, stderr.String())
+}
+
 func TestUnknownCommandReturnsJSONEnvelope(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
@@ -68,10 +89,17 @@ func TestCommandsJSONIncludesPhase1Commands(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr.String())
 	require.Contains(t, stdout.String(), `"path": "yunxiao org current"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao org members list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao codeup repos list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao codeup repo get"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao codeup branches list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao codeup commits list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao codeup file get"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao codeup compare get"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao flow pipelines list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao flow pipeline get"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao flow runs list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao flow run get"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth login"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth status"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth logout"`)
@@ -100,6 +128,68 @@ func TestCommandHelpJSONIncludesFlags(t *testing.T) {
 	require.Contains(t, stdout.String(), `"name": "pipeline-id"`)
 	require.Contains(t, stdout.String(), `"required": true`)
 	require.Contains(t, stdout.String(), `"type": "string"`)
+}
+
+func TestPhase1GapCommandHelpJSONIncludesRequiredFlags(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name     string
+		args     []string
+		required []string
+		optional []string
+	}{
+		{name: "org members list", args: []string{"org", "members", "list"}, required: []string{"organization-id"}, optional: []string{"page-size", "page-token"}},
+		{name: "codeup branches list", args: []string{"codeup", "branches", "list"}, required: []string{"organization-id", "repo-id"}, optional: []string{"page-size", "page-token", "sort", "search"}},
+		{name: "codeup commits list", args: []string{"codeup", "commits", "list"}, required: []string{"organization-id", "repo-id"}, optional: []string{"ref-name", "since", "until", "path", "search", "show-signature", "committer-ids"}},
+		{name: "codeup file get", args: []string{"codeup", "file", "get"}, required: []string{"organization-id", "repo-id", "path", "ref"}},
+		{name: "codeup compare get", args: []string{"codeup", "compare", "get"}, required: []string{"organization-id", "repo-id", "from", "to"}, optional: []string{"source-type", "target-type", "straight"}},
+		{name: "flow runs list", args: []string{"flow", "runs", "list"}, required: []string{"organization-id", "pipeline-id"}, optional: []string{"page-size", "page-token", "start-time", "end-time", "status", "trigger-mode"}},
+		{name: "flow run get", args: []string{"flow", "run", "get"}, required: []string{"organization-id", "pipeline-id", "run-id"}},
+		{name: "projex projects list", args: []string{"projex", "projects", "list"}, optional: []string{"organization-id", "mine", "scenario-filter", "user-id", "name", "status", "created-after", "created-before", "admin-user-id", "advanced-conditions", "extra-conditions", "order-by", "sort"}},
+		{name: "projex workitems list", args: []string{"projex", "workitems", "list"}, required: []string{"organization-id", "category", "space-id"}, optional: []string{"status", "assigned-to", "finish-time-after", "update-status-at-after", "advanced-conditions", "order-by", "sort"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append(append([]string{}, tc.args...), "--help", "--json")
+			cmd := exec.Command(binary, args...)
+			cmd.Env = testEnv()
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.Empty(t, stderr.String())
+
+			var envelope struct {
+				Data struct {
+					Flags []struct {
+						Name     string `json:"name"`
+						Required bool   `json:"required"`
+					} `json:"flags"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &envelope))
+
+			flags := make(map[string]bool, len(envelope.Data.Flags))
+			for _, flag := range envelope.Data.Flags {
+				flags[flag.Name] = flag.Required
+			}
+			for _, name := range tc.required {
+				required, ok := flags[name]
+				require.True(t, ok, "expected flag %s", name)
+				require.True(t, required, "expected flag %s to be required", name)
+			}
+			for _, name := range tc.optional {
+				_, ok := flags[name]
+				require.True(t, ok, "expected flag %s", name)
+			}
+		})
+	}
 }
 
 func TestAuthHelpJSONIncludesAuthFlags(t *testing.T) {

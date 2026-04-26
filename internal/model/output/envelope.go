@@ -13,9 +13,13 @@ type Meta struct {
 }
 
 type Pagination struct {
-	NextToken *string `json:"next_token"`
-	PageSize  int     `json:"page_size"`
-	HasMore   bool    `json:"has_more"`
+	NextToken  *string `json:"next_token"`
+	PageSize   int     `json:"page_size"`
+	HasMore    bool    `json:"has_more"`
+	Page       *int    `json:"page,omitempty"`
+	TotalPages *int    `json:"total_pages,omitempty"`
+	Total      *int    `json:"total,omitempty"`
+	PrevToken  *string `json:"prev_token,omitempty"`
 }
 
 type ErrorDetail struct {
