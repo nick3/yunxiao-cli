@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "EMPTY_RESPONSE",
+    "category": "general",
+    "retryable": false,
+    "message": "upstream returned an empty response body for a JSON request",
+    "upstream_status": null
+  }
+}

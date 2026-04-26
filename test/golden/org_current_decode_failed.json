@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "RESPONSE_DECODE_FAILED",
+    "category": "general",
+    "retryable": false,
+    "message": "failed to decode response: invalid character 'o' in literal null (expecting 'u')",
+    "upstream_status": null
+  }
+}

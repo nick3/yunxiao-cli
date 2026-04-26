@@ -1,0 +1,10 @@
+{
+  "version": "v1",
+  "data": {
+    "id": "repo-1",
+    "name": "frontend",
+    "path": "frontend"
+  },
+  "meta": {},
+  "error": null
+}

@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "data": [
+    { "id": "repo-1", "name": "frontend" },
+    { "id": "repo-2", "name": "backend" }
+  ],
+  "meta": {
+    "pagination": {
+      "next_token": "abc123",
+      "page_size": 2,
+      "has_more": true
+    }
+  },
+  "error": null
+}

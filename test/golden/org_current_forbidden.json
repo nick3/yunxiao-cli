@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "FORBIDDEN",
+    "category": "forbidden",
+    "retryable": false,
+    "message": "permission denied",
+    "upstream_status": 403
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "AUTH_FAILED",
+    "category": "auth",
+    "retryable": false,
+    "message": "YUNXIAO_ACCESS_TOKEN is missing or invalid",
+    "upstream_status": null
+  }
+}

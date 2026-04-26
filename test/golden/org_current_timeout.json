@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "REQUEST_TIMEOUT",
+    "category": "network",
+    "retryable": true,
+    "message": "request timed out after 1s",
+    "upstream_status": null
+  }
+}

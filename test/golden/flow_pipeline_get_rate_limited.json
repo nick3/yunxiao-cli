@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "RATE_LIMITED",
+    "category": "rate_limit",
+    "retryable": true,
+    "message": "API rate limit exceeded",
+    "upstream_status": 429
+  }
+}

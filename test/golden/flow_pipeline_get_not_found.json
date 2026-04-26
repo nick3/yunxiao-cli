@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "category": "not_found",
+    "retryable": false,
+    "message": "resource not found",
+    "upstream_status": 404
+  }
+}

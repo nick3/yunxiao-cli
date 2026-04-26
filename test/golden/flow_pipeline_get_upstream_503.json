@@ -1,0 +1,12 @@
+{
+  "version": "v1",
+  "data": null,
+  "meta": {},
+  "error": {
+    "code": "UPSTREAM_UNAVAILABLE",
+    "category": "upstream",
+    "retryable": true,
+    "message": "upstream service error",
+    "upstream_status": 503
+  }
+}
