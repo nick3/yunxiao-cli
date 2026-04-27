@@ -100,6 +100,15 @@ func TestCommandsJSONIncludesPhase1Commands(t *testing.T) {
 	require.Contains(t, stdout.String(), `"path": "yunxiao flow pipeline get"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao flow runs list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao flow run get"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem create"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem update"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-types list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-type get"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-types relations"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-type fields"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-type workflow"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comments list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comment create"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth login"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth status"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth logout"`)
@@ -148,7 +157,16 @@ func TestPhase1GapCommandHelpJSONIncludesRequiredFlags(t *testing.T) {
 		{name: "flow runs list", args: []string{"flow", "runs", "list"}, required: []string{"organization-id", "pipeline-id"}, optional: []string{"page-size", "page-token", "start-time", "end-time", "status", "trigger-mode"}},
 		{name: "flow run get", args: []string{"flow", "run", "get"}, required: []string{"organization-id", "pipeline-id", "run-id"}},
 		{name: "projex projects list", args: []string{"projex", "projects", "list"}, optional: []string{"organization-id", "mine", "scenario-filter", "user-id", "name", "status", "created-after", "created-before", "admin-user-id", "advanced-conditions", "extra-conditions", "order-by", "sort"}},
-		{name: "projex workitems list", args: []string{"projex", "workitems", "list"}, required: []string{"category"}, optional: []string{"organization-id", "space-id", "mine", "unfinished", "status", "assigned-to", "finish-time-after", "update-status-at-after", "advanced-conditions", "order-by", "sort"}},
+		{name: "projex workitems list", args: []string{"projex", "workitems", "list"}, required: []string{"category"}, optional: []string{"organization-id", "project-id", "space-id", "mine", "unfinished", "status", "assigned-to", "finish-time-after", "update-status-at-after", "advanced-conditions", "order-by", "sort"}},
+		{name: "projex workitem create", args: []string{"projex", "workitem", "create"}, required: []string{"organization-id", "workitem-type-id", "subject", "assigned-to", "yes"}, optional: []string{"project-id", "space-id", "description", "description-file", "format-type", "labels", "parent-id", "participants", "sprint", "trackers", "verifier", "versions", "custom-field", "custom-fields-json"}},
+		{name: "projex workitem update", args: []string{"projex", "workitem", "update"}, required: []string{"organization-id", "workitem-id", "yes"}, optional: []string{"subject", "assigned-to", "description", "description-file", "format-type", "priority", "status", "labels", "participants", "sprint", "trackers", "verifier", "versions", "custom-field", "custom-fields-json"}},
+		{name: "projex workitem-types list all", args: []string{"projex", "workitem-types", "list"}, required: []string{"organization-id"}, optional: []string{"all", "project-id", "category"}},
+		{name: "projex workitem-type get", args: []string{"projex", "workitem-type", "get"}, required: []string{"organization-id", "workitem-type-id"}},
+		{name: "projex workitem-types relations", args: []string{"projex", "workitem-types", "relations"}, required: []string{"organization-id", "workitem-type-id"}},
+		{name: "projex workitem-type fields", args: []string{"projex", "workitem-type", "fields"}, required: []string{"organization-id", "project-id", "workitem-type-id"}},
+		{name: "projex workitem-type workflow", args: []string{"projex", "workitem-type", "workflow"}, required: []string{"organization-id", "project-id", "workitem-type-id"}},
+		{name: "projex workitem comments list", args: []string{"projex", "workitem", "comments", "list"}, required: []string{"organization-id", "workitem-id"}, optional: []string{"page-size", "page-token"}},
+		{name: "projex workitem comment create", args: []string{"projex", "workitem", "comment", "create"}, required: []string{"organization-id", "workitem-id", "yes"}, optional: []string{"content", "content-file"}},
 	}
 
 	for _, tc := range tests {

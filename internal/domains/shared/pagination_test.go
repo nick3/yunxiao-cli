@@ -59,15 +59,23 @@ func TestDecodeSearchListRawArrayMissingNextPageHasNoContinuation(t *testing.T) 
 	require.False(t, pagination.HasMore)
 }
 
-func TestDecodeSearchListRawArrayInvalidPerPageFallsBack(t *testing.T) {
-	headers := http.Header{}
-	headers.Set("x-next-page", "2")
-	headers.Set("x-per-page", "invalid")
+func TestDecodeSearchListRejectsInvalidPerPageHeader(t *testing.T) {
+	for _, value := range []string{"invalid", "0", "-1"} {
+		t.Run(value, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set("x-next-page", "2")
+			headers.Set("x-per-page", value)
 
-	_, pagination, errDetail := DecodeSearchList(json.RawMessage(`[{"id":"proj-1"}]`), headers, 20)
+			data, pagination, errDetail := DecodeSearchList(json.RawMessage(`[{"id":"proj-1"}]`), headers, 20)
 
-	require.Nil(t, errDetail)
-	require.Equal(t, 20, pagination.PageSize)
+			require.Nil(t, data)
+			require.Nil(t, pagination)
+			require.NotNil(t, errDetail)
+			require.Equal(t, "PAGINATION_INVALID", errDetail.Code)
+			require.Contains(t, errDetail.Message, "x-per-page")
+			require.Contains(t, errDetail.Message, value)
+		})
+	}
 }
 
 func TestDecodeSearchListRejectsInvalidCountPaginationHeaders(t *testing.T) {
@@ -116,12 +124,41 @@ func TestDecodeSearchListWrapperUsesBodyPagination(t *testing.T) {
 }
 
 func TestDecodeSearchListRejectsInvalidShape(t *testing.T) {
-	data, pagination, errDetail := DecodeSearchList(json.RawMessage(`{"data":{}}`), http.Header{}, 20)
+	for _, body := range []string{`{"data":{}}`, `{"unexpected":true}`, `{"data":null}`} {
+		t.Run(body, func(t *testing.T) {
+			data, pagination, errDetail := DecodeSearchList(json.RawMessage(body), http.Header{}, 20)
 
-	require.Nil(t, data)
-	require.Nil(t, pagination)
-	require.NotNil(t, errDetail)
-	require.Equal(t, "RESPONSE_DECODE_FAILED", errDetail.Code)
-	require.Equal(t, "general", errDetail.Category)
-	require.False(t, errDetail.Retryable)
+			require.Nil(t, data)
+			require.Nil(t, pagination)
+			require.NotNil(t, errDetail)
+			require.Equal(t, "RESPONSE_DECODE_FAILED", errDetail.Code)
+			require.Equal(t, "general", errDetail.Category)
+			require.False(t, errDetail.Retryable)
+		})
+	}
+}
+
+func TestDecodeSearchListRejectsBusinessErrorEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string
+		message string
+	}{
+		{name: "success false", body: `{"success":false,"errorMessage":"search failed"}`, message: "search failed"},
+		{name: "code message", body: `{"code":"InvalidParameter","message":"bad query"}`, message: "bad query"},
+		{name: "capitalized", body: `{"Code":"InvalidParameter","Message":"bad query"}`, message: "bad query"},
+		{name: "invalid success type", body: `{"success":"false","message":"bad success"}`, message: "bad success"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, pagination, errDetail := DecodeSearchList(json.RawMessage(tc.body), http.Header{}, 20)
+
+			require.Nil(t, data)
+			require.Nil(t, pagination)
+			require.NotNil(t, errDetail)
+			require.Equal(t, "UPSTREAM_BUSINESS_ERROR", errDetail.Code)
+			require.Equal(t, "upstream", errDetail.Category)
+			require.False(t, errDetail.Retryable)
+			require.Contains(t, errDetail.Message, tc.message)
+		})
+	}
 }

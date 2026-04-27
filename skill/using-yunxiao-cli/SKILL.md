@@ -44,6 +44,7 @@ If `yunxiao` is not installed on `PATH` and you are inside this repository, use 
 | Pagination | Follow `meta.pagination.next_token` only when `meta.pagination.has_more` is true; use optional `meta.pagination.total` for counts when present. |
 | Testplans | `testhub testplans list` is not paginated; do not pass `--page-size` or `--page-token`. |
 | Raw request | Phase 2 raw is read-only: only `--method GET` and `--path /oapi/...`. |
+| Writes | Projex write commands require explicit `--yes`; never use raw request for writes. |
 
 ## Auth Guidance
 
@@ -80,9 +81,18 @@ yunxiao projex projects list --organization-id <org> --json
 # 中心站可省略 --organization-id；若 lastOrganizationId 为空会返回 PARAM_REQUIRED。当前账号参与项目可用：
 yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org> --project-id <project> --json
-yunxiao projex workitems list --organization-id <org> --category <category> --space-id <space> --json
+yunxiao projex workitems list --organization-id <org> --category <category> --project-id <project> --json
 yunxiao projex workitems list --mine --unfinished --category Task --json
 yunxiao projex workitem get --organization-id <org> --workitem-id <workitem> --json
+yunxiao projex workitem create --organization-id <org> --project-id <project> --workitem-type-id <type> --subject <subject> --assigned-to self --yes --json
+yunxiao projex workitem update --organization-id <org> --workitem-id <workitem> --status <status> --assigned-to self --yes --json
+yunxiao projex workitem comments list --organization-id <org> --workitem-id <workitem> --json
+yunxiao projex workitem comment create --organization-id <org> --workitem-id <workitem> --content <content> --yes --json
+yunxiao projex workitem-types list --organization-id <org> --project-id <project> --category Task --json
+yunxiao projex workitem-types relations --organization-id <org> --workitem-type-id <type> --json
+yunxiao projex workitem-type get --organization-id <org> --workitem-type-id <type> --json
+yunxiao projex workitem-type fields --organization-id <org> --project-id <project> --workitem-type-id <type> --json
+yunxiao projex workitem-type workflow --organization-id <org> --project-id <project> --workitem-type-id <type> --json
 yunxiao projex sprints list --organization-id <org> --project-id <project> --json
 yunxiao packages repos list --organization-id <org> --json
 yunxiao packages artifacts list --organization-id <org> --repo-id <repo> --repo-type <type> --json
@@ -96,7 +106,19 @@ yunxiao raw request --method GET --path /oapi/... --json
 
 ## Projex Scope
 
-Projex commands currently support project/space-scoped list enumeration and known-ID detail reads. `projex projects list` can auto-resolve the central-edition organization from `org current.lastOrganizationId`, supports MCP-compatible filters such as `--name`, `--status`, `--admin-user-id`, `--scenario-filter`, `--user-id`, `--advanced-conditions`, and `--extra-conditions`, and exposes `--mine` for projects participated in by the current user. `projects list --mine` is mutually exclusive with explicit `--scenario-filter` / `--user-id`; `--advanced-conditions` overrides basic project filters, while `--scenario-filter` plus `--user-id` overrides `--extra-conditions`. Plain `projex workitems list` requires explicit `--organization-id`, `--category`, and `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`. `projex workitems list --mine --category Task` resolves the current user, enumerates participated projects, and returns workitems assigned to that user across those projects; add `--unfinished` to filter completed workitems from that aggregated result. In `--mine` mode, `--space-id`, `--page-token`, `--assigned-to`, and `--advanced-conditions` are rejected with `PARAM_INVALID`. `--unfinished` is only valid with `--mine` and fails instead of guessing when a workitem completion status is not recognizable. Do not assume direct organization-level workitem search or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
+Projex commands support project/space-scoped list enumeration, known-ID detail reads, workitem type metadata, comments, and explicit-confirmation workitem writes. `projex projects list` can auto-resolve the central-edition organization from `org current.lastOrganizationId`, supports MCP-compatible filters such as `--name`, `--status`, `--admin-user-id`, `--scenario-filter`, `--user-id`, `--advanced-conditions`, and `--extra-conditions`, and exposes `--mine` for projects participated in by the current user. `projects list --mine` is mutually exclusive with explicit `--scenario-filter` / `--user-id`; `--advanced-conditions` overrides basic project filters, while `--scenario-filter` plus `--user-id` overrides `--extra-conditions`. Plain `projex workitems list` requires explicit `--organization-id`, `--category`, and `--project-id` or `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`; prefer `--project-id` in Agent workflows and use `--space-id` only for compatibility with API wording. `projex workitems list --mine --category Task` resolves the current user, enumerates participated projects, and returns workitems assigned to that user across those projects; add `--unfinished` to filter completed workitems from that aggregated result. In `--mine` mode, `--project-id`, `--space-id`, `--page-token`, `--assigned-to`, and `--advanced-conditions` are rejected with `PARAM_INVALID`. `--unfinished` is only valid with `--mine` and fails instead of guessing when a workitem completion status is not recognizable. `projex workitem create`, `projex workitem update`, and `projex workitem comment create` write to Yunxiao and must include `--yes`; without `--yes` they fail before auth or HTTP. `workitem create` accepts `--project-id` or `--space-id`; if both are set they must match. `workitem create/update --assigned-to self` resolves the current user ID before sending the write. `--description-file` and `--content-file` read UTF-8 regular files only, reject empty files, and cap input at 1MiB. Create sends `customFieldValues` as a nested object; update expands `--custom-field` / `--custom-fields-json` entries to top-level fields, matching the official Yunxiao MCP server. Do not assume direct organization-level workitem search or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
+
+## Projex Workitem Write Playbook
+
+Use this playbook when the user asks to create or update a Yunxiao requirement, task, defect, bug, or work item.
+
+1. Discover capabilities first: run `yunxiao projex workitem create --help --json`, `yunxiao projex workitem-types list --help --json`, and any needed `projects list` / `workitem-types list` command. Do not invent flags.
+2. Map Chinese work item words to Projex categories for lookup: `需求` -> `Req`, `任务` -> `Task`, `缺陷` / `Bug` -> `Bug`. If the user gives a different category, use their explicit value.
+3. Resolve target IDs before writing: organization ID, project ID, workitem type ID, subject, and assignee. Prefer `--project-id`; use `--space-id` only when the user or existing data names it that way. Use `--assigned-to self` when the user wants the current account as assignee.
+4. Before adding `--yes`, present the exact target and payload to the user: organization, project, category/type, subject, assignee, description, parent, labels, sprint, custom fields, and whether this creates or updates data. Continue only after explicit confirmation.
+5. Execute the write with `--json` and `--yes`. Capture stdout even on non-zero exit and branch on `.error.category`.
+6. After create succeeds, run `yunxiao projex workitem get --organization-id <org> --workitem-id <id> --json` to verify the created item when the response contains an ID. Report the ID, serial number if present, subject, status, project, workitem type, and URL only if the CLI or upstream response provides one.
+7. Recovery: on `param`, fix flags or missing IDs; on `auth`, ask for token refresh; on `forbidden`, stop and report permissions; on `upstream`, report upstream message and retry only when `.error.retryable` is true.
 
 ## Parsing Pattern
 
@@ -172,6 +194,7 @@ Use `.error.category` for control flow and `.error.code` for logging or exact di
 | Exiting before parsing non-zero stdout | Capture stdout, then parse `.error` from the JSON envelope. |
 | Reading only top-level `.data[].path` from `commands --json` | Recursively walk `.subcommands[]` to discover leaf commands. |
 | Using `raw request` for POST/PUT/DELETE | Do not; Phase 2 raw only supports GET. |
+| Running Projex create/update/comment create without `--yes` | Add `--yes` only after confirming the write target and payload. |
 | Guessing `--page`, `--limit`, `--cursor` | Use `--page-size` and `--page-token` only where help exposes them. |
 
 ## Red Flags
@@ -184,6 +207,7 @@ Stop and inspect `commands --json` or `--help --json` if you are about to:
 - Exit on a non-zero status before parsing stdout `.error`.
 - Add pagination to a command whose help does not expose it.
 - Use `raw request` to mutate data.
+- Add `--yes` to a Projex write command without confirming the target organization, workitem, and payload.
 - Retry without checking `error.category` and `error.retryable`.
 - Continue after `PARAM_INVALID` without changing arguments.
 
