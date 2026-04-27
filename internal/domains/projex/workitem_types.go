@@ -223,10 +223,6 @@ func upstreamBusinessError(data map[string]any) *output.ErrorDetail {
 	return &output.ErrorDetail{Code: "UPSTREAM_BUSINESS_ERROR", Category: "upstream", Retryable: false, Message: message}
 }
 
-func decodeWorkitemMetadataError(err error) *output.ErrorDetail {
-	return decodeWorkitemResponseError(err, "workitem metadata")
-}
-
 func decodeWorkitemResponseError(err error, resourceName string) *output.ErrorDetail {
 	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: fmt.Sprintf("failed to decode "+resourceName+" response: %v", err)}
 }
