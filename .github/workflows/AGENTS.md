@@ -4,12 +4,13 @@
 # workflows
 
 ## Purpose
-This directory contains GitHub Actions workflows for continuous integration and tag-based releases.
+This directory contains GitHub Actions workflows for continuous integration and release automation.
 
 ## Key Files
 | File | Description |
 |------|-------------|
 | `ci.yml` | Runs on pull requests and pushes to `main`; checks gofmt, `go vet`, `go test`, and `go build`. |
+| `preview-release.yml` | Runs on pushes to `main`; checks formatting, vet, tests, builds preview artifacts, and publishes the `preview` prerelease. |
 | `release.yml` | Runs on `v*` tags; checks vet/tests and publishes release artifacts through GoReleaser. |
 
 ## Subdirectories
@@ -30,7 +31,7 @@ This directory contains GitHub Actions workflows for continuous integration and 
 
 ### Common Patterns
 - `actions/setup-go` reads `go.mod` through `go-version-file`.
-- Release workflow uses `GITHUB_TOKEN` from GitHub Actions secrets context.
+- Preview and release publishing workflows use GitHub-provided tokens from the Actions secrets context.
 
 ## Dependencies
 

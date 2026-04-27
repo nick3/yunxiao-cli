@@ -487,6 +487,310 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexWorkitemsListMineRejectsInvalidFlagCombinations(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name    string
+		args    []string
+		message string
+	}{
+		{name: "unfinished without mine", args: []string{"projex", "workitems", "list", "--unfinished", "--category", "Task", "--json"}, message: "unfinished can only be used with mine"},
+		{name: "mine with space id", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--space-id", "proj-1", "--json"}, message: "space_id cannot be used with mine"},
+		{name: "mine with page token", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--page-token", "2", "--json"}, message: "page_token cannot be used with mine"},
+		{name: "mine with assigned to", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--assigned-to", "user-2", "--json"}, message: "assigned_to cannot be used with mine"},
+		{name: "mine with advanced conditions", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--advanced-conditions", `{"conditionGroups":[]}`, "--json"}, message: "advanced_conditions cannot be used with mine"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(binary, tc.args...)
+			cmd.Env = testEnv()
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 2, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+			require.Contains(t, stdout.String(), tc.message)
+			require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexWorkitemsListMineAggregatesParticipatedProjects(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	workitemPages := map[string]int{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oapi/v1/platform/user":
+			require.Equal(t, http.MethodGet, r.Method)
+			fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+		case "/oapi/v1/projex/organizations/org-123/projects:search":
+			require.Equal(t, http.MethodPost, r.Method)
+			var payload map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			require.Equal(t, float64(2), payload["perPage"])
+			var extraConditions struct {
+				ConditionGroups [][]struct {
+					FieldIdentifier string   `json:"fieldIdentifier"`
+					Value           []string `json:"value"`
+				} `json:"conditionGroups"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(payload["extraConditions"].(string)), &extraConditions))
+			require.Equal(t, "users", extraConditions.ConditionGroups[0][0].FieldIdentifier)
+			require.Equal(t, []string{"user-1"}, extraConditions.ConditionGroups[0][0].Value)
+			w.Header().Set("x-total", "2")
+			fmt.Fprint(w, `[{"id":"proj-1"},{"id":"proj-2"}]`)
+		case "/oapi/v1/projex/organizations/org-123/workitems:search":
+			require.Equal(t, http.MethodPost, r.Method)
+			var payload map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			require.Equal(t, "Task", payload["category"])
+			require.Equal(t, float64(2), payload["perPage"])
+			var conditions struct {
+				ConditionGroups [][]struct {
+					FieldIdentifier string   `json:"fieldIdentifier"`
+					Value           []string `json:"value"`
+				} `json:"conditionGroups"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(payload["conditions"].(string)), &conditions))
+			require.Equal(t, "assignedTo", conditions.ConditionGroups[0][0].FieldIdentifier)
+			require.Equal(t, []string{"user-1"}, conditions.ConditionGroups[0][0].Value)
+
+			spaceID := payload["spaceId"].(string)
+			workitemPages[spaceID]++
+			switch {
+			case spaceID == "proj-1" && workitemPages[spaceID] == 1:
+				w.Header().Set("x-next-page", "2")
+				w.Header().Set("x-total", "3")
+				fmt.Fprint(w, `[{"id":"wi-open","status":{"name":"待处理"}},{"id":"wi-done","status":{"name":"已完成"}}]`)
+			case spaceID == "proj-1" && workitemPages[spaceID] == 2:
+				require.Equal(t, float64(2), payload["page"])
+				fmt.Fprint(w, `[{"id":"wi-closed","logicalStatus":"COMPLETED"}]`)
+			case spaceID == "proj-2":
+				fmt.Fprint(w, `[{"id":"wi-other","status":{"id":"done-marker","name":"未完成"}}]`)
+			default:
+				t.Fatalf("unexpected workitem request for %s page %d", spaceID, workitemPages[spaceID])
+			}
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitems", "list", "--mine", "--unfinished", "--category", "Task", "--page-size", "2", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"wi-open","status":{"name":"待处理"}},{"id":"wi-other","status":{"id":"done-marker","name":"未完成"}}],"meta":{"pagination":{"next_token":null,"page_size":2,"has_more":false,"total":2}},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemsListMineFailsFastOnIncompleteAggregate(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	run := func(t *testing.T, handler http.HandlerFunc) (string, string, int) {
+		t.Helper()
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		cmd := exec.Command(binary, "projex", "workitems", "list", "--mine", "--unfinished", "--category", "Task", "--page-size", "2", "--json")
+		cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		require.Error(t, err)
+		exitErr, ok := err.(*exec.ExitError)
+		require.True(t, ok, "unexpected command error type %T: %v; stdout=%s; stderr=%s", err, err, stdout.String(), stderr.String())
+		return stdout.String(), stderr.String(), exitErr.ExitCode()
+	}
+
+	t.Run("missing project id", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"name":"missing-id"}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "RESPONSE_DECODE_FAILED"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "project list response item 0")
+	})
+
+	t.Run("repeated page token", func(t *testing.T) {
+		workitemRequests := 0
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				workitemRequests++
+				w.Header().Set("x-next-page", "2")
+				fmt.Fprint(w, `[{"id":"wi-open","status":{"name":"待处理"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Equal(t, 2, workitemRequests)
+		require.Contains(t, stdout, `"code": "PAGINATION_LOOP_DETECTED"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "repeated next page token")
+	})
+
+	t.Run("project pagination total without next token", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				w.Header().Set("x-total", "2")
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "PAGINATION_INVALID"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "participated project search returned 1 of 2 items")
+	})
+
+	t.Run("workitem pagination total without next token", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				w.Header().Set("x-total", "2")
+				fmt.Fprint(w, `[{"id":"wi-open","status":{"name":"待处理"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "PAGINATION_INVALID"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "workitem search for project proj-1 returned 1 of 2 items")
+	})
+
+	t.Run("unclassified status", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				fmt.Fprint(w, `[{"id":"wi-unknown","status":{"name":"QA Review"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "wi-unknown")
+		require.Contains(t, stderr, "QA Review")
+	})
+
+	t.Run("conflicting status fields", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				fmt.Fprint(w, `[{"id":"wi-conflict","status":{"name":"已完成","stage":"open"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "wi-conflict")
+		require.Contains(t, stderr, "已完成")
+		require.Contains(t, stderr, "open")
+	})
+
+	t.Run("conflicting logical status and status", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				fmt.Fprint(w, `[{"id":"wi-cross-conflict","logicalStatus":"COMPLETED","status":{"name":"待处理"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 1, exitCode)
+		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stderr, "wi-cross-conflict")
+		require.Contains(t, stderr, "COMPLETED")
+		require.Contains(t, stderr, "待处理")
+	})
+
+	t.Run("project workitem failure", func(t *testing.T) {
+		stdout, stderr, exitCode := run(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/oapi/v1/platform/user":
+				fmt.Fprint(w, `{"id":"user-1","lastOrganization":"org-123"}`)
+			case "/oapi/v1/projex/organizations/org-123/projects:search":
+				fmt.Fprint(w, `[{"id":"proj-1"},{"id":"proj-2"}]`)
+			case "/oapi/v1/projex/organizations/org-123/workitems:search":
+				var payload map[string]any
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+				if payload["spaceId"] == "proj-2" {
+					w.WriteHeader(http.StatusForbidden)
+					fmt.Fprint(w, `{"message":"no permission"}`)
+					return
+				}
+				fmt.Fprint(w, `[{"id":"wi-open","status":{"name":"待处理"}}]`)
+			default:
+				http.Error(w, "unexpected path", http.StatusInternalServerError)
+			}
+		})
+		require.Equal(t, 8, exitCode)
+		require.Contains(t, stdout, `"data": null`)
+		require.Contains(t, stdout, "proj-2")
+		require.NotContains(t, stdout, "wi-open")
+		require.Contains(t, stderr, "failed to list assigned workitems for project proj-2")
+	})
+}
+
 func TestProjexWorkitemsListHelpExposesRequiredFlags(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
@@ -518,6 +822,8 @@ func TestProjexWorkitemsListHelpExposesRequiredFlags(t *testing.T) {
 	require.True(t, flagNames["organization-id"])
 	require.True(t, flagNames["category"])
 	require.True(t, flagNames["space-id"])
+	require.True(t, flagNames["mine"])
+	require.True(t, flagNames["unfinished"])
 	require.True(t, flagNames["page-size"])
 	require.True(t, flagNames["page-token"])
 }
@@ -570,6 +876,34 @@ func TestProjexSprintsListCallsYunxiaoAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"version":"v1","data":[{"id":"sprint-1","name":"Sprint 1"}],"meta":{"pagination":{"next_token":"4","page_size":2,"has_more":true}},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
+}
+
+func TestProjexSprintsListRejectsInvalidPaginationHeaders(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/oapi/v1/projex/projects/proj-1/sprints", r.URL.Path)
+		w.Header().Set("x-total", "invalid")
+		fmt.Fprint(w, `[{"id":"sprint-1","name":"Sprint 1"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "sprints", "list", "--organization-id", "org-123", "--project-id", "proj-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 1, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PAGINATION_INVALID"`)
+	require.Contains(t, stdout.String(), `"data": null`)
+	require.Contains(t, stderr.String(), `x-total="invalid"`)
 }
 
 func TestTesthubDirectoriesListCallsYunxiaoAPI(t *testing.T) {

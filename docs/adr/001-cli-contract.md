@@ -27,6 +27,8 @@ yunxiao projex projects list --mine
 # In central edition, projects list may omit --organization-id when org current returns lastOrganizationId.
 yunxiao projex project get --organization-id <id> --project-id <id>
 yunxiao projex workitems list --organization-id <id> --category <category> --space-id <id>
+yunxiao projex workitems list --mine --category <category>
+yunxiao projex workitems list --mine --unfinished --category <category>
 yunxiao projex workitem get --organization-id <id> --workitem-id <id>
 yunxiao projex sprints list --organization-id <id> --project-id <id>
 yunxiao packages repos list --organization-id <id>
@@ -48,6 +50,10 @@ Grammar rules:
 
 Phase 1 domains: `org`, `codeup`, `flow`
 Phase 2 additions: `projex`, `packages`, `testhub`, `raw`
+
+### Projex Personal Workitems
+
+`projex workitems list --mine` is a Phase 2 read-only aggregation command. It resolves the current user with `org current`, lists projects participated in by that user, then performs project-scoped `workitems:search` calls with `assignedTo` set to the current user. `--unfinished` is only valid with `--mine`, filters completed workitems from the aggregated result, and fails instead of guessing when a workitem completion status is not recognizable. The command drains upstream pages for every participated project and returns one complete aggregate with `has_more: false`; `--page-size` only controls upstream fetch size in this mode. If any project-scoped workitem search fails, the aggregate command fails rather than returning partial results. Direct organization-level `workitems:search` without `spaceId` is not part of the v1 contract because the verified upstream API rejects that shape.
 
 ### Raw Request Boundary
 

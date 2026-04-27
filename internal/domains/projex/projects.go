@@ -122,7 +122,11 @@ func ListSprints(ctx context.Context, client *httpx.Client, organizationID, proj
 	if errDetail != nil {
 		return nil, nil, errDetail
 	}
-	return data, shared.SearchPaginationFromHeaders(headers, pageSize), nil
+	pagination, errDetail := shared.SearchPaginationFromHeadersStrict(headers, pageSize)
+	if errDetail != nil {
+		return nil, nil, errDetail
+	}
+	return data, pagination, nil
 }
 
 func searchList(ctx context.Context, client *httpx.Client, path string, payload map[string]any, pageSize int) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {

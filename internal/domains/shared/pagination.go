@@ -28,7 +28,11 @@ func DecodeSearchList(body json.RawMessage, headers http.Header, pageSize int) (
 		if err := json.Unmarshal(body, &data); err != nil {
 			return nil, nil, decodeSearchError(err)
 		}
-		return data, SearchPaginationFromHeaders(headers, pageSize), nil
+		pagination, errDetail := SearchPaginationFromHeadersStrict(headers, pageSize)
+		if errDetail != nil {
+			return nil, nil, errDetail
+		}
+		return data, pagination, nil
 	}
 
 	var apiResp SearchResponse
@@ -36,7 +40,10 @@ func DecodeSearchList(body json.RawMessage, headers http.Header, pageSize int) (
 		return nil, nil, decodeSearchError(err)
 	}
 	nextToken := StringToken(apiResp.NextPage)
-	pagination := SearchPaginationFromHeaders(headers, pageSize)
+	pagination, errDetail := SearchPaginationFromHeadersStrict(headers, pageSize)
+	if errDetail != nil {
+		return nil, nil, errDetail
+	}
 	pagination.NextToken = nextToken
 	pagination.HasMore = nextToken != nil
 	return apiResp.Data, pagination, nil
@@ -57,6 +64,38 @@ func SearchPaginationFromHeaders(headers http.Header, fallbackPageSize int) *out
 		Total:      headerInt(headers, "x-total"),
 		PrevToken:  StringToken(headers.Get("x-prev-page")),
 	}
+}
+
+func SearchPaginationFromHeadersStrict(headers http.Header, fallbackPageSize int) (*output.Pagination, *output.ErrorDetail) {
+	page, errDetail := strictHeaderInt(headers, "x-page")
+	if errDetail != nil {
+		return nil, errDetail
+	}
+	totalPages, errDetail := strictHeaderInt(headers, "x-total-pages")
+	if errDetail != nil {
+		return nil, errDetail
+	}
+	total, errDetail := strictHeaderInt(headers, "x-total")
+	if errDetail != nil {
+		return nil, errDetail
+	}
+	pagination := SearchPaginationFromHeaders(headers, fallbackPageSize)
+	pagination.Page = page
+	pagination.TotalPages = totalPages
+	pagination.Total = total
+	return pagination, nil
+}
+
+func strictHeaderInt(headers http.Header, key string) (*int, *output.ErrorDetail) {
+	raw := strings.TrimSpace(headers.Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return nil, &output.ErrorDetail{Code: "PAGINATION_INVALID", Category: "general", Retryable: false, Message: fmt.Sprintf("upstream returned invalid pagination header %s=%q", key, raw)}
+	}
+	return &value, nil
 }
 
 func headerInt(headers http.Header, key string) *int {

@@ -20,12 +20,11 @@ func buildTestBinary(t *testing.T, root string) string {
 	absRoot, err := filepath.Abs(root)
 	require.NoError(t, err)
 
-	binary := filepath.Join(absRoot, "yunxiao-test")
+	binary := filepath.Join(t.TempDir(), "yunxiao-test")
 	cmd := exec.Command("go", "build", "-o", binary, "./cmd/yunxiao")
 	cmd.Dir = absRoot
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(output))
-	t.Cleanup(func() { _ = os.Remove(binary) })
 	return binary
 }
 
