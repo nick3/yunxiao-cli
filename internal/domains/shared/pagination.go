@@ -35,18 +35,39 @@ func DecodeSearchList(body json.RawMessage, headers http.Header, pageSize int) (
 		return data, pagination, nil
 	}
 
-	var apiResp SearchResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, nil, decodeSearchError(err)
 	}
-	nextToken := StringToken(apiResp.NextPage)
+	var envelope map[string]any
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, nil, decodeSearchError(err)
+	}
+	if errDetail := detectSearchBusinessError(envelope); errDetail != nil {
+		return nil, nil, errDetail
+	}
+	dataBody, ok := raw["data"]
+	if !ok {
+		return nil, nil, unexpectedSearchResponse()
+	}
+	var data []map[string]any
+	if err := json.Unmarshal(dataBody, &data); err != nil || data == nil {
+		return nil, nil, unexpectedSearchResponse()
+	}
+	var nextPage any
+	if nextBody, ok := raw["nextPage"]; ok {
+		if err := json.Unmarshal(nextBody, &nextPage); err != nil {
+			return nil, nil, decodeSearchError(err)
+		}
+	}
+	nextToken := StringToken(nextPage)
 	pagination, errDetail := SearchPaginationFromHeadersStrict(headers, pageSize)
 	if errDetail != nil {
 		return nil, nil, errDetail
 	}
 	pagination.NextToken = nextToken
 	pagination.HasMore = nextToken != nil
-	return apiResp.Data, pagination, nil
+	return data, pagination, nil
 }
 
 func SearchPaginationFromHeaders(headers http.Header, fallbackPageSize int) *output.Pagination {
@@ -71,6 +92,10 @@ func SearchPaginationFromHeadersStrict(headers http.Header, fallbackPageSize int
 	if errDetail != nil {
 		return nil, errDetail
 	}
+	perPage, errDetail := strictHeaderPositiveInt(headers, "x-per-page")
+	if errDetail != nil {
+		return nil, errDetail
+	}
 	totalPages, errDetail := strictHeaderInt(headers, "x-total-pages")
 	if errDetail != nil {
 		return nil, errDetail
@@ -80,6 +105,9 @@ func SearchPaginationFromHeadersStrict(headers http.Header, fallbackPageSize int
 		return nil, errDetail
 	}
 	pagination := SearchPaginationFromHeaders(headers, fallbackPageSize)
+	if perPage != nil {
+		pagination.PageSize = *perPage
+	}
 	pagination.Page = page
 	pagination.TotalPages = totalPages
 	pagination.Total = total
@@ -93,9 +121,25 @@ func strictHeaderInt(headers http.Header, key string) (*int, *output.ErrorDetail
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 0 {
-		return nil, &output.ErrorDetail{Code: "PAGINATION_INVALID", Category: "general", Retryable: false, Message: fmt.Sprintf("upstream returned invalid pagination header %s=%q", key, raw)}
+		return nil, invalidPaginationHeader(key, raw)
 	}
 	return &value, nil
+}
+
+func strictHeaderPositiveInt(headers http.Header, key string) (*int, *output.ErrorDetail) {
+	raw := strings.TrimSpace(headers.Get(key))
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return nil, invalidPaginationHeader(key, raw)
+	}
+	return &value, nil
+}
+
+func invalidPaginationHeader(key, raw string) *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "PAGINATION_INVALID", Category: "general", Retryable: false, Message: fmt.Sprintf("upstream returned invalid pagination header %s=%q", key, raw)}
 }
 
 func headerInt(headers http.Header, key string) *int {
@@ -124,4 +168,40 @@ func ApplyPageToken(payload map[string]any, pageToken string) {
 
 func decodeSearchError(err error) *output.ErrorDetail {
 	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: fmt.Sprintf("failed to decode search response: %v", err)}
+}
+
+func unexpectedSearchResponse() *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode search response: expected object with data array"}
+}
+
+func detectSearchBusinessError(data map[string]any) *output.ErrorDetail {
+	if value, ok := data["success"]; ok {
+		success, ok := value.(bool)
+		if !ok || !success {
+			return upstreamSearchBusinessError(data)
+		}
+	}
+	if hasSearchStringValue(data, "errorCode") || hasSearchStringValue(data, "errorMessage") || hasSearchStringValue(data, "Code") || hasSearchStringValue(data, "Message") {
+		return upstreamSearchBusinessError(data)
+	}
+	if hasSearchStringValue(data, "code") && (hasSearchStringValue(data, "message") || hasSearchStringValue(data, "msg")) {
+		return upstreamSearchBusinessError(data)
+	}
+	return nil
+}
+
+func hasSearchStringValue(data map[string]any, key string) bool {
+	value, ok := data[key].(string)
+	return ok && strings.TrimSpace(value) != ""
+}
+
+func upstreamSearchBusinessError(data map[string]any) *output.ErrorDetail {
+	message := "upstream returned a business error"
+	for _, key := range []string{"errorMessage", "message", "msg", "Message"} {
+		if value, ok := data[key].(string); ok && strings.TrimSpace(value) != "" {
+			message = value
+			break
+		}
+	}
+	return &output.ErrorDetail{Code: "UPSTREAM_BUSINESS_ERROR", Category: "upstream", Retryable: false, Message: message}
 }

@@ -1,6 +1,6 @@
 # Yunxiao CLI
 
-Yunxiao CLI 是一个面向 AI Agent 和自动化脚本的阿里云云效（Yunxiao）DevOps 命令行工具。它将云效常用只读能力封装为独立的 Go 二进制程序，便于在 shell、CI、subprocess 和其他 Agent 工作流中稳定调用。
+Yunxiao CLI 是一个面向 AI Agent 和自动化脚本的阿里云云效（Yunxiao）DevOps 命令行工具。它将云效常用 DevOps 能力封装为独立的 Go 二进制程序，便于在 shell、CI、subprocess 和其他 Agent 工作流中稳定调用。
 
 项目重点不是提供交互式人类界面，而是提供稳定、可解析、可自动化的 CLI 契约：成功和失败都输出 JSON envelope，exit code 有明确语义，stderr 只承载诊断信息。
 
@@ -11,7 +11,7 @@ Yunxiao CLI 是一个面向 AI Agent 和自动化脚本的阿里云云效（Yunx
 - 成功和失败都可由程序解析：失败时 stdout 仍包含 `error` 对象。
 - stderr 只输出诊断、重试、调试等信息，不作为结构化数据来源。
 - 支持命令自省：`yunxiao commands --json` 和 `yunxiao <cmd> --help --json`。
-- 支持常用只读域：`org`、`codeup`、`flow`、`projex`、`packages`、`testhub`。
+- 支持常用 DevOps 域：`org`、`codeup`、`flow`、`projex`、`packages`、`testhub`。
 - 提供受限 raw request：仅支持 `GET /oapi/...`，用于只读 API 覆盖缺口。
 - 内置 timeout、retry、exit code、错误分类和分页契约。
 
@@ -164,15 +164,25 @@ yunxiao projex projects list --organization-id <org-id> --json
 # 查看当前账号参与的项目（不可与 --scenario-filter / --user-id 混用）：
 yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org-id> --project-id <project-id> --json
-yunxiao projex workitems list --organization-id <org-id> --category <category> --space-id <space-id> --json
+yunxiao projex workitems list --organization-id <org-id> --category <category> --project-id <project-id> --json
 # 查看当前账号在参与项目中分配给自己的工作项；可加 --unfinished 过滤已完成项：
 yunxiao projex workitems list --mine --unfinished --category Task --json
 yunxiao projex workitem get --organization-id <org-id> --workitem-id <workitem-id> --json
+yunxiao projex workitem create --organization-id <org-id> --project-id <project-id> --workitem-type-id <type-id> --subject <subject> --assigned-to self --yes --json
+yunxiao projex workitem update --organization-id <org-id> --workitem-id <workitem-id> --status <status-id> --assigned-to self --yes --json
+yunxiao projex workitem comments list --organization-id <org-id> --workitem-id <workitem-id> --json
+yunxiao projex workitem comment create --organization-id <org-id> --workitem-id <workitem-id> --content <content> --yes --json
+yunxiao projex workitem-types list --organization-id <org-id> --project-id <project-id> --category Task --json
+yunxiao projex workitem-types list --organization-id <org-id> --all --json
+yunxiao projex workitem-types relations --organization-id <org-id> --workitem-type-id <type-id> --json
+yunxiao projex workitem-type get --organization-id <org-id> --workitem-type-id <type-id> --json
+yunxiao projex workitem-type fields --organization-id <org-id> --project-id <project-id> --workitem-type-id <type-id> --json
+yunxiao projex workitem-type workflow --organization-id <org-id> --project-id <project-id> --workitem-type-id <type-id> --json
 yunxiao projex sprints list --organization-id <org-id> --project-id <project-id> --json
 # 可选：通过 --status <status-list> 过滤迭代状态
 ```
 
-Projex 当前提供项目/空间内列表枚举和已知 ID 详情查询。`projects list` 支持与 MCP server 对齐的 `--name`、`--status`、`--admin-user-id`、`--scenario-filter`、`--user-id`、`--advanced-conditions`、`--extra-conditions` 等查询条件；`--advanced-conditions` 会覆盖基础项目条件，`--scenario-filter` 与 `--user-id` 同时存在时会覆盖 `--extra-conditions`。`projects list --mine` 等价于按当前用户参与项目过滤，且不可与显式 `--scenario-filter` / `--user-id` 混用。普通 `workitems list` 仍需要明确的 `--organization-id`、`--space-id` 和 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件。`workitems list --mine` 会解析当前用户、枚举当前用户参与的项目，再逐项目查询分配给当前用户的工作项；`--unfinished` 只能与 `--mine` 搭配，用于过滤已完成工作项，遇到无法识别完成状态的工作项会返回错误而不是猜测。本周完成等时间聚合查询尚未成为公共命令契约。
+Projex 提供项目/空间内列表枚举、已知 ID 详情查询，以及显式确认的工作项写操作。`projects list` 支持与 MCP server 对齐的 `--name`、`--status`、`--admin-user-id`、`--scenario-filter`、`--user-id`、`--advanced-conditions`、`--extra-conditions` 等查询条件；`--advanced-conditions` 会覆盖基础项目条件，`--scenario-filter` 与 `--user-id` 同时存在时会覆盖 `--extra-conditions`。`projects list --mine` 等价于按当前用户参与项目过滤，且不可与显式 `--scenario-filter` / `--user-id` 混用。普通 `workitems list` 仍需要明确的 `--organization-id`、`--project-id` 或 `--space-id`、以及 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件；`--project-id` 是面向用户和 Agent 的项目 ID 参数，`--space-id` 保留为兼容底层 API 命名的等价别名。`workitems list --mine` 会解析当前用户、枚举当前用户参与的项目，再逐项目查询分配给当前用户的工作项；`--unfinished` 只能与 `--mine` 搭配，用于过滤已完成工作项，遇到无法识别完成状态的工作项会返回错误而不是猜测。`workitem create`、`workitem update`、`workitem comment create` 会写入云效，必须显式传 `--yes`；`workitem create` 支持 `--project-id` 或兼容用的 `--space-id`，`workitem create/update --assigned-to self` 会解析当前用户 ID。描述和评论正文可通过 `--description-file` / `--content-file` 从 UTF-8 普通文件读取，文件必须非空且不超过 1MiB。创建时自定义字段会发送为 `customFieldValues`，更新时自定义字段会按官方 MCP server 调用逻辑展开到 request body 顶层。本周完成等时间聚合查询尚未成为公共命令契约。
 
 ### 查看制品仓库和制品
 
@@ -418,8 +428,8 @@ Agent 调用时应遵循：
 
 ## 注意事项
 
-- 当前命令以只读能力为主，写操作尚未作为公共契约提供。
-- `raw request` 不是通用 HTTP 客户端，只是只读逃生口。
+- 当前命令仍以只读能力为主，已开放的 Projex 写操作必须显式传 `--yes`。
+- `raw request` 不是通用 HTTP 客户端，只是只读逃生口，不能绕过写操作确认。
 - `testhub testplans list` 不支持分页参数。
 - stdout/stderr 分离是公共契约，不要把 stderr 当成数据源。
 - `--quiet` 只影响 stderr 诊断，不改变 stdout JSON envelope。

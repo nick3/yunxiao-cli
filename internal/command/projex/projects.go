@@ -27,6 +27,8 @@ func NewProjexCmd() *cobra.Command {
 	cmd.AddCommand(newProjectCmd())
 	cmd.AddCommand(newWorkitemsCmd())
 	cmd.AddCommand(newWorkitemCmd())
+	cmd.AddCommand(newWorkitemTypesCmd())
+	cmd.AddCommand(newWorkitemTypeCmd())
 	cmd.AddCommand(newSprintsCmd())
 	return cmd
 }
@@ -207,6 +209,10 @@ func newWorkitemsCmd() *cobra.Command {
 func newWorkitemCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "workitem", Short: "Workitem commands"}
 	cmd.AddCommand(newWorkitemGetCmd())
+	cmd.AddCommand(newWorkitemCreateCmd())
+	cmd.AddCommand(newWorkitemUpdateCmd())
+	cmd.AddCommand(newWorkitemCommentsCmd())
+	cmd.AddCommand(newWorkitemCommentCmd())
 	return cmd
 }
 
@@ -217,7 +223,7 @@ func newSprintsCmd() *cobra.Command {
 }
 
 func newWorkitemsListCmd() *cobra.Command {
-	var organizationID, category, spaceID, pageToken string
+	var organizationID, category, projectID, spaceID, pageToken string
 	var opts projexdomain.WorkitemListOptions
 	var pageSize int
 	var mine, unfinished bool
@@ -234,12 +240,16 @@ func newWorkitemsListCmd() *cobra.Command {
 			exitWithError(format, meta, "PARAM_INVALID", "param", false, "unfinished can only be used with mine")
 			return nil
 		}
-		if !mine && spaceID == "" {
-			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "space_id is required unless mine is set")
+		if mine && (projectID != "" || spaceID != "") {
+			exitWithError(format, meta, "PARAM_INVALID", "param", false, "project_id or space_id cannot be used with mine")
 			return nil
 		}
-		if mine && spaceID != "" {
-			exitWithError(format, meta, "PARAM_INVALID", "param", false, "space_id cannot be used with mine")
+		resolvedProjectID, ok := resolveProjexProjectID(projectID, spaceID, format, meta)
+		if !ok {
+			return nil
+		}
+		if !mine && resolvedProjectID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "project_id or space_id is required unless mine is set")
 			return nil
 		}
 		if mine && pageToken != "" {
@@ -279,7 +289,7 @@ func newWorkitemsListCmd() *cobra.Command {
 			}
 			return nil
 		}
-		data, pagination, errDetail := projexdomain.ListWorkitems(context.Background(), client, orgID, category, spaceID, pageSize, pageToken, opts)
+		data, pagination, errDetail := projexdomain.ListWorkitems(context.Background(), client, orgID, category, resolvedProjectID, pageSize, pageToken, opts)
 		if errDetail != nil {
 			fmt.Fprintf(os.Stderr, "[ERROR] workitem list failed: %s\n", errDetail.Message)
 			os.Exit(cli.WriteError(errDetail, meta, format))
@@ -293,7 +303,8 @@ func newWorkitemsListCmd() *cobra.Command {
 	}}
 	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
 	cmd.Flags().StringVar(&category, "category", "", "Workitem category")
-	cmd.Flags().StringVar(&spaceID, "space-id", "", "Projex space ID")
+	cmd.Flags().StringVar(&projectID, "project-id", "", "Project ID; alias of space-id")
+	cmd.Flags().StringVar(&spaceID, "space-id", "", "Projex space ID; alias of project-id")
 	cmd.Flags().StringVar(&opts.SpaceType, "space-type", "", "Projex space type")
 	cmd.Flags().StringVar(&opts.Subject, "subject", "", "Subject keyword filter")
 	cmd.Flags().StringVar(&opts.Status, "status", "", "Comma-separated status IDs")

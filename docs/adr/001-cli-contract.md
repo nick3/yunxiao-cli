@@ -19,17 +19,27 @@ yunxiao flow pipelines list --organization-id <id>
 yunxiao flow pipeline get --organization-id <id> --pipeline-id <id>
 ```
 
-Phase 2 read-only additions:
+Phase 2 additions:
 
 ```
 yunxiao projex projects list --organization-id <id>
 yunxiao projex projects list --mine
 # In central edition, projects list may omit --organization-id when org current returns lastOrganizationId.
 yunxiao projex project get --organization-id <id> --project-id <id>
-yunxiao projex workitems list --organization-id <id> --category <category> --space-id <id>
+yunxiao projex workitems list --organization-id <id> --category <category> --project-id <id>
 yunxiao projex workitems list --mine --category <category>
 yunxiao projex workitems list --mine --unfinished --category <category>
 yunxiao projex workitem get --organization-id <id> --workitem-id <id>
+yunxiao projex workitem create --organization-id <id> --project-id <id> --workitem-type-id <id> --subject <text> --assigned-to <user-id|self> --yes
+yunxiao projex workitem update --organization-id <id> --workitem-id <id> --assigned-to <user-id|self> --yes
+yunxiao projex workitem comments list --organization-id <id> --workitem-id <id>
+yunxiao projex workitem comment create --organization-id <id> --workitem-id <id> --content <text> --yes
+yunxiao projex workitem-types list --organization-id <id> --project-id <id> --category <category>
+yunxiao projex workitem-types list --organization-id <id> --all
+yunxiao projex workitem-types relations --organization-id <id> --workitem-type-id <id>
+yunxiao projex workitem-type get --organization-id <id> --workitem-type-id <id>
+yunxiao projex workitem-type fields --organization-id <id> --project-id <id> --workitem-type-id <id>
+yunxiao projex workitem-type workflow --organization-id <id> --project-id <id> --workitem-type-id <id>
 yunxiao projex sprints list --organization-id <id> --project-id <id>
 yunxiao packages repos list --organization-id <id>
 yunxiao packages artifacts list --organization-id <id> --repo-id <id> --repo-type <type>
@@ -53,7 +63,11 @@ Phase 2 additions: `projex`, `packages`, `testhub`, `raw`
 
 ### Projex Personal Workitems
 
-`projex workitems list --mine` is a Phase 2 read-only aggregation command. It resolves the current user with `org current`, lists projects participated in by that user, then performs project-scoped `workitems:search` calls with `assignedTo` set to the current user. `--unfinished` is only valid with `--mine`, filters completed workitems from the aggregated result, and fails instead of guessing when a workitem completion status is not recognizable. The command drains upstream pages for every participated project and returns one complete aggregate with `has_more: false`; `--page-size` only controls upstream fetch size in this mode. If any project-scoped workitem search fails, the aggregate command fails rather than returning partial results. Direct organization-level `workitems:search` without `spaceId` is not part of the v1 contract because the verified upstream API rejects that shape.
+`projex workitems list --mine` is a Phase 2 read-only aggregation command. It resolves the current user with `org current`, lists projects participated in by that user, then performs project-scoped `workitems:search` calls with `assignedTo` set to the current user. Plain `projex workitems list` accepts `--project-id` and the API-shaped `--space-id` alias for the same project/space identifier; if both are set they must match. `--unfinished` is only valid with `--mine`, filters completed workitems from the aggregated result, and fails instead of guessing when a workitem completion status is not recognizable. The command drains upstream pages for every participated project and returns one complete aggregate with `has_more: false`; `--page-size` only controls upstream fetch size in this mode. If any project-scoped workitem search fails, the aggregate command fails rather than returning partial results. Direct organization-level `workitems:search` without `spaceId` is not part of the v1 contract because the verified upstream API rejects that shape.
+
+### Projex Workitem Writes
+
+`projex workitem create`, `projex workitem update`, and `projex workitem comment create` are explicit write commands. They must fail with `PARAM_REQUIRED` / `param` / exit code 2 before auth or HTTP unless `--yes` is present. `workitem create` accepts `--project-id` and the API-shaped `--space-id` alias for the same project/space identifier; if both are set they must match. `workitem create/update --assigned-to self` resolves the current user ID before sending the write. Non-idempotent write HTTP methods are not auto-retried. Text file inputs such as `--description-file` and `--content-file` must read UTF-8 regular files only, reject empty files, cap input at 1MiB, and avoid leaking full local paths in errors. Create sends custom fields as nested `customFieldValues`; update expands custom fields to top-level request body fields to match the official Yunxiao MCP server call shape.
 
 ### Raw Request Boundary
 
@@ -62,6 +76,7 @@ Phase 2 additions: `projex`, `packages`, `testhub`, `raw`
 - `--path` must start with `/oapi/`; absolute URLs are rejected
 - Output still uses the standard JSON envelope and exit-code mapping
 - Raw request does not bypass auth, timeout, retry, trace, or stdout/stderr rules
+- Raw request cannot be used to bypass Projex write command confirmation
 
 ## 2. JSON Output Envelope & Version Field
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -487,6 +488,97 @@ func TestProjexWorkitemsListCallsYunxiaoAPI(t *testing.T) {
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexWorkitemsListAcceptsProjectIDAlias(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems:search", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"category":"Task","spaceId":"proj-1","perPage":20}`, string(body))
+		fmt.Fprint(w, `[{"id":"wi-1"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitems", "list", "--organization-id", "org-123", "--category", "Task", "--project-id", "proj-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), `"error": null`)
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemsListRejectsMismatchedProjectAndSpaceIDBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "workitems", "list", "--organization-id", "org-123", "--category", "Task", "--project-id", "proj-1", "--space-id", "proj-2", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "project_id and space_id must match")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemsListRejectsInvalidSearchObjectResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name     string
+		body     string
+		code     string
+		message  string
+		exitCode int
+	}{
+		{name: "unexpected object", body: `{"unexpected":true}`, code: "RESPONSE_DECODE_FAILED", message: "expected object with data array", exitCode: 1},
+		{name: "business error", body: `{"success":false,"errorMessage":"search failed"}`, code: "UPSTREAM_BUSINESS_ERROR", message: "search failed", exitCode: 7},
+		{name: "code message", body: `{"code":"InvalidParameter","message":"bad query"}`, code: "UPSTREAM_BUSINESS_ERROR", message: "bad query", exitCode: 7},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPost, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems:search", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitems", "list", "--organization-id", "org-123", "--category", "Task", "--space-id", "proj-1", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, tc.exitCode, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "`+tc.code+`"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), tc.message)
+		})
+	}
+}
+
 func TestProjexWorkitemsListMineRejectsInvalidFlagCombinations(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
@@ -497,7 +589,8 @@ func TestProjexWorkitemsListMineRejectsInvalidFlagCombinations(t *testing.T) {
 		message string
 	}{
 		{name: "unfinished without mine", args: []string{"projex", "workitems", "list", "--unfinished", "--category", "Task", "--json"}, message: "unfinished can only be used with mine"},
-		{name: "mine with space id", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--space-id", "proj-1", "--json"}, message: "space_id cannot be used with mine"},
+		{name: "mine with space id", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--space-id", "proj-1", "--json"}, message: "project_id or space_id cannot be used with mine"},
+		{name: "mine with project id", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--project-id", "proj-1", "--json"}, message: "project_id or space_id cannot be used with mine"},
 		{name: "mine with page token", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--page-token", "2", "--json"}, message: "page_token cannot be used with mine"},
 		{name: "mine with assigned to", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--assigned-to", "user-2", "--json"}, message: "assigned_to cannot be used with mine"},
 		{name: "mine with advanced conditions", args: []string{"projex", "workitems", "list", "--mine", "--category", "Task", "--advanced-conditions", `{"conditionGroups":[]}`, "--json"}, message: "advanced_conditions cannot be used with mine"},
@@ -955,6 +1048,971 @@ func TestTesthubTestplansListCallsYunxiaoAPI(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, `{"version":"v1","data":[{"id":"plan-1","name":"regression"}],"meta":{},"error":null}`, stdout.String())
 	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateCallsRegionYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"spaceId":"proj-1","workitemTypeId":"type-1","subject":"fix bug","assignedTo":"user-1","customFieldValues":{"customText":"cf text"}}`, string(body))
+		fmt.Fprint(w, `{"id":"wi-1","subject":"fix bug"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--custom-field", "customText=cf text", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"wi-1","subject":"fix bug"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateAllowsReservedCustomFieldKeys(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"spaceId":"proj-1","workitemTypeId":"type-1","subject":"fix bug","assignedTo":"user-1","customFieldValues":{"subject":"custom subject","assignedTo":"custom assignee"}}`, string(body))
+		fmt.Fprint(w, `{"id":"wi-1","subject":"fix bug"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--custom-field", "subject=custom subject", "--custom-fields-json", `{"assignedTo":"custom assignee"}`, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"wi-1","subject":"fix bug"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateAcceptsProjectIDAliasAndAssignedToSelf(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oapi/v1/platform/user":
+			require.Equal(t, http.MethodGet, r.Method)
+			fmt.Fprint(w, `{"id":"user-self"}`)
+		case "/oapi/v1/projex/workitems":
+			require.Equal(t, http.MethodPost, r.Method)
+			body, err := io.ReadAll(r.Body)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"spaceId":"proj-1","workitemTypeId":"type-1","subject":"fix bug","assignedTo":"user-self"}`, string(body))
+			fmt.Fprint(w, `{"id":"wi-1"}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--project-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "self", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"wi-1"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateRejectsMismatchedProjectAndSpaceIDBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--project-id", "proj-1", "--space-id", "proj-2", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--yes", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "project_id and space_id must match")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateReadsDescriptionFile(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	descriptionPath := filepath.Join(t.TempDir(), "description.md")
+	require.NoError(t, os.WriteFile(descriptionPath, []byte("file description"), 0o600))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, "file description", payload["description"])
+		fmt.Fprint(w, `{"id":"wi-1"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--description-file", descriptionPath, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.Contains(t, stdout.String(), `"error": null`)
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemCreateWithoutYesDoesNotSendRequest(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), "yes")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexWorkitemCreateRejectsAckOnlyResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "success only", body: `{"success":true}`},
+		{name: "empty result", body: `{"success":true,"result":{}}`},
+		{name: "null result", body: `{"success":true,"result":null}`},
+		{name: "array result", body: `{"success":true,"result":[]}`},
+		{name: "unexpected object", body: `{"success":true,"result":{"unexpected":true}}`},
+		{name: "queued object", body: `{"result":{"queued":true}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPost, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), "failed to decode")
+		})
+	}
+}
+
+func TestProjexWorkitemDescriptionFileRejectsUnsafeInputs(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	dir := t.TempDir()
+	emptyPath := filepath.Join(dir, "empty.md")
+	invalidUTF8Path := filepath.Join(dir, "invalid.md")
+	largePath := filepath.Join(dir, "large.md")
+	symlinkPath := filepath.Join(dir, "link.md")
+	targetPath := filepath.Join(dir, "target.md")
+	require.NoError(t, os.WriteFile(emptyPath, nil, 0o600))
+	require.NoError(t, os.WriteFile(invalidUTF8Path, []byte{0xff}, 0o600))
+	require.NoError(t, os.WriteFile(largePath, bytes.Repeat([]byte("a"), 1024*1024+1), 0o600))
+	require.NoError(t, os.WriteFile(targetPath, []byte("target"), 0o600))
+	require.NoError(t, os.Symlink(targetPath, symlinkPath))
+
+	for _, tc := range []struct {
+		name    string
+		path    string
+		message string
+	}{
+		{name: "empty", path: emptyPath, message: "file is empty"},
+		{name: "invalid utf8", path: invalidUTF8Path, message: "file must be UTF-8"},
+		{name: "too large", path: largePath, message: "file exceeds 1MiB"},
+		{name: "symlink", path: symlinkPath, message: "file must be a regular file"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--description-file", tc.path, "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token")
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "FILE_READ_FAILED"`)
+			require.Contains(t, stdout.String(), tc.message)
+			require.Contains(t, stdout.String(), filepath.Base(tc.path))
+			require.NotContains(t, stdout.String(), dir)
+			require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexWorkitemUpdateSendsStandardAndCustomFieldsAtTopLevel(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPut, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems/wi-1", r.URL.Path)
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, "new subject", payload["subject"])
+		require.Equal(t, "user-1", payload["assignedTo"])
+		require.Equal(t, "high", payload["priority"])
+		require.Equal(t, "cf text", payload["customText"])
+		require.Equal(t, "42", payload["customNumber"])
+		require.NotContains(t, payload, "customFieldValues")
+		fmt.Fprint(w, `{"id":"wi-1","subject":"new subject"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--assigned-to", "user-1", "--priority", "high", "--custom-field", "customText=cf text", "--custom-field", "customNumber=42", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"workitem_id":"wi-1","updated":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemUpdateRejectsReservedCustomFieldKeysBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "pair", args: []string{"--custom-field", "subject=override"}},
+		{name: "json", args: []string{"--custom-fields-json", `{"assignedTo":"user-2"}`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json"}
+			args = append(args, tc.args...)
+			cmd := exec.Command(binary, args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 2, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+			require.Contains(t, stdout.String(), "conflicts with a standard workitem field")
+			require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+			require.Empty(t, stderr.String())
+		})
+	}
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexWorkitemUpdateResolvesAssignedToSelf(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oapi/v1/platform/user":
+			require.Equal(t, http.MethodGet, r.Method)
+			fmt.Fprint(w, `{"id":"user-self"}`)
+		case "/oapi/v1/projex/workitems/wi-1":
+			require.Equal(t, http.MethodPut, r.Method)
+			var payload map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+			require.Equal(t, "user-self", payload["assignedTo"])
+			fmt.Fprint(w, `{"success":true}`)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--assigned-to", "self", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"workitem_id":"wi-1","updated":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemUpdateAcceptsExplicitSuccessConfirmation(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "success only", body: `{"success":true}`},
+		{name: "success with request id", body: `{"success":true,"requestId":"req-1"}`},
+		{name: "success with uppercase request id", body: `{"success":true,"RequestId":"req-1"}`},
+		{name: "success with request ID", body: `{"success":true,"requestID":"req-1"}`},
+		{name: "success with trace id", body: `{"success":true,"traceId":"trace-1"}`},
+		{name: "success with trace ID", body: `{"success":true,"traceID":"trace-1"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPut, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems/wi-1", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":"v1","data":{"workitem_id":"wi-1","updated":true},"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexWorkitemUpdateRejectsAmbiguousSuccessResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "code only", body: `{"code":"InvalidParameter"}`},
+		{name: "unexpected object", body: `{"unexpected":true}`},
+		{name: "success with empty result", body: `{"success":true,"result":{}}`},
+		{name: "success with unexpected metadata", body: `{"success":true,"unexpected":"value"}`},
+		{name: "success with unexpected result", body: `{"success":true,"result":{"unexpected":true}}`},
+		{name: "queued result", body: `{"result":{"queued":true}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPut, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems/wi-1", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), "expected resource object with id or explicit success confirmation")
+		})
+	}
+}
+
+func TestProjexWorkitemUpdateRejectsNoUpdateFieldsBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--yes", "--json")
+	cmd.Env = testEnv()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "update")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemUpdateRejectsEmptySubjectBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "update")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexWorkitemUpdateWithoutYesDoesNotSendRequest(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), "yes")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexWorkitemTypesListAllCallsYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitemTypes", r.URL.Path)
+		fmt.Fprint(w, `[{"id":"type-1","name":"Task"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem-types", "list", "--organization-id", "org-123", "--all", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"type-1","name":"Task"}],"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemTypesListProjectCategoryCallsYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/oapi/v1/projex/projects/proj-1/workitemTypes", r.URL.Path)
+		require.Equal(t, "Task", r.URL.Query().Get("category"))
+		fmt.Fprint(w, `[{"id":"type-1","name":"Task"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem-types", "list", "--organization-id", "org-123", "--project-id", "proj-1", "--category", "Task", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"type-1","name":"Task"}],"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexWorkitemTypeMetadataCommandsCallYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name string
+		args []string
+		path string
+		body string
+	}{
+		{name: "get", args: []string{"projex", "workitem-type", "get", "--organization-id", "org-123", "--workitem-type-id", "type-1"}, path: "/oapi/v1/projex/workitemTypes/type-1", body: `{"id":"type-1","name":"Task"}`},
+		{name: "relations", args: []string{"projex", "workitem-types", "relations", "--organization-id", "org-123", "--workitem-type-id", "type-1"}, path: "/oapi/v1/projex/workitemTypes/type-1/relationWorkitemTypes", body: `[{"id":"rel-1"}]`},
+		{name: "fields", args: []string{"projex", "workitem-type", "fields", "--organization-id", "org-123", "--project-id", "proj-1", "--workitem-type-id", "type-1"}, path: "/oapi/v1/projex/projects/proj-1/workitemTypes/type-1/fields", body: `{"fields":[{"identifier":"subject"}]}`},
+		{name: "workflow", args: []string{"projex", "workitem-type", "workflow", "--organization-id", "org-123", "--project-id", "proj-1", "--workitem-type-id", "type-1"}, path: "/oapi/v1/projex/projects/proj-1/workitemTypes/type-1/workflows", body: `{"statuses":[{"id":"open"}]}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, tc.path, r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			args := append(append([]string{}, tc.args...), "--json")
+			cmd := exec.Command(binary, args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.Contains(t, stdout.String(), `"version": "v1"`)
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexCommentsListArrayWithoutPaginationHeadersHasNoMorePages(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems/wi-1/comments", r.URL.Path)
+		require.Equal(t, "2", r.URL.Query().Get("page"))
+		require.Equal(t, "5", r.URL.Query().Get("perPage"))
+		fmt.Fprint(w, `[{"id":"comment-1","content":"hello"}]`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--page-token", "2", "--page-size", "5", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":[{"id":"comment-1","content":"hello"}],"meta":{"pagination":{"next_token":null,"page_size":5,"has_more":false}},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexCommentsListRejectsInvalidPaginationHeader(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{name: "total", header: "x-total", value: "invalid"},
+		{name: "per page", header: "x-per-page", value: "invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems/wi-1/comments", r.URL.Path)
+				w.Header().Set(tc.header, tc.value)
+				fmt.Fprint(w, `[{"id":"comment-1","content":"hello"}]`)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "PAGINATION_INVALID"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), tc.header+`="`+tc.value+`"`)
+		})
+	}
+}
+
+func TestProjexListCommandsRejectUnexpectedObjectResponse(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		path     string
+		resource string
+	}{
+		{name: "comments", args: []string{"projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments", resource: "workitem comments"},
+		{name: "workitem types", args: []string{"projex", "workitem-types", "list", "--organization-id", "org-123", "--all", "--json"}, path: "/oapi/v1/projex/workitemTypes", resource: "workitem metadata"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, tc.path, r.URL.Path)
+				fmt.Fprint(w, `{"unexpected":true}`)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, tc.args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), "failed to decode "+tc.resource+" response")
+			require.Contains(t, stderr.String(), "expected array or object with result array")
+		})
+	}
+}
+
+func TestProjexListCommandsRejectBusinessErrorEnvelope(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		path string
+	}{
+		{name: "comments", args: []string{"projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments"},
+		{name: "workitem types", args: []string{"projex", "workitem-types", "list", "--organization-id", "org-123", "--all", "--json"}, path: "/oapi/v1/projex/workitemTypes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, tc.path, r.URL.Path)
+				fmt.Fprint(w, `{"success":false,"errorMessage":"metadata unavailable"}`)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, tc.args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 7, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "UPSTREAM_BUSINESS_ERROR"`)
+			require.Contains(t, stdout.String(), "metadata unavailable")
+			require.Contains(t, stderr.String(), "metadata unavailable")
+		})
+	}
+}
+
+func TestProjexCommentCreateCallsRegionYunxiaoAPI(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems/wi-1/comments", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"content":"hello"}`, string(body))
+		fmt.Fprint(w, `{"id":"comment-1","content":"hello"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content", "hello", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"comment-1","content":"hello"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexCommentCreateReadsContentFile(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	contentPath := filepath.Join(t.TempDir(), "comment.txt")
+	require.NoError(t, os.WriteFile(contentPath, []byte("file comment"), 0o600))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"content":"file comment"}`, string(body))
+		fmt.Fprint(w, `{"id":"comment-1","content":"file comment"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content-file", contentPath, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"comment-1","content":"file comment"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexCommentCreateRejectsAckOnlyResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "success only", body: `{"success":true}`},
+		{name: "unexpected object", body: `{"success":true,"result":{"unexpected":true}}`},
+		{name: "queued object", body: `{"result":{"queued":true}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPost, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems/wi-1/comments", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content", "hello", "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 1, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), "failed to decode")
+		})
+	}
+}
+
+func TestProjexWriteCommandsRejectBusinessErrorEnvelope(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		path string
+		body string
+	}{
+		{name: "create", args: []string{"projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--yes", "--json"}, path: "/oapi/v1/projex/workitems", body: `{"success":false,"errorCode":"FIELD_INVALID","errorMessage":"field invalid"}`},
+		{name: "update", args: []string{"projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json"}, path: "/oapi/v1/projex/workitems/wi-1", body: `{"code":"InvalidParameter","message":"field invalid"}`},
+		{name: "comment create", args: []string{"projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content", "hello", "--yes", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments", body: `{"Code":"InvalidParameter","Message":"field invalid"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, tc.path, r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, tc.args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 7, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "UPSTREAM_BUSINESS_ERROR"`)
+			require.Contains(t, stdout.String(), "field invalid")
+			require.Contains(t, stderr.String(), "field invalid")
+		})
+	}
+}
+
+func TestProjexWriteCommandsDoNotRetryServerErrors(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		path string
+	}{
+		{name: "create", args: []string{"projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--yes", "--json"}, path: "/oapi/v1/projex/workitems"},
+		{name: "update", args: []string{"projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json"}, path: "/oapi/v1/projex/workitems/wi-1"},
+		{name: "comment create", args: []string{"projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content", "hello", "--yes", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				require.Equal(t, tc.path, r.URL.Path)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(w, `{"message":"try later"}`)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, tc.args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout bytes.Buffer
+			cmd.Stdout = &stdout
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 7, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "UPSTREAM_UNAVAILABLE"`)
+			require.Equal(t, 1, requests)
+		})
+	}
+}
+
+func TestProjexCommentCreateWithoutYesDoesNotSendRequest(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "comment", "create", "--organization-id", "org-123", "--workitem-id", "wi-1", "--content", "hello", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), "yes")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
 }
 
 func TestListCommandsRejectInvalidPageSizeBeforeAuth(t *testing.T) {
