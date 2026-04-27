@@ -32,10 +32,10 @@ jobs:
       - name: Run tests
         run: go test ./...
       - name: Build preview artifacts
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --snapshot --clean
       - name: Publish preview release
         env:
@@ -43,9 +43,29 @@ jobs:
           PREVIEW_TAG: preview
         run: |
           set -euo pipefail
+          shopt -s nullglob
 
           notes_file="${RUNNER_TEMP}/preview-notes.md"
           short_sha="${GITHUB_SHA::7}"
+          archives=(dist/*.tar.gz dist/*.zip)
+
+          if [[ ${#archives[@]} -eq 0 ]]; then
+            echo "No preview archives found in dist/"
+            exit 1
+          fi
+
+          if [[ ! -f dist/checksums.txt ]]; then
+            echo "Missing dist/checksums.txt"
+            exit 1
+          fi
+
+          for archive in "${archives[@]}"; do
+            archive_name="$(basename "${archive}")"
+            if ! awk '{ print $2 }' dist/checksums.txt | grep -Fxq "${archive_name}"; then
+              echo "Missing checksum entry for ${archive_name}"
+              exit 1
+            fi
+          done
 
           cat > "${notes_file}" <<EOF
           Preview build from main @ ${GITHUB_SHA}.
@@ -53,16 +73,39 @@ jobs:
           This prerelease is replaced on every push to main and is not a stable release.
           EOF
 
-          if gh release view "${PREVIEW_TAG}" >/dev/null 2>&1; then
-            gh release delete "${PREVIEW_TAG}" --cleanup-tag --yes
-          fi
+          release_response="${RUNNER_TEMP}/preview-release-response.json"
+          release_status="$(curl --silent --show-error \
+            --output "${release_response}" \
+            --write-out "%{http_code}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/releases/tags/${PREVIEW_TAG}")"
 
-          gh release create "${PREVIEW_TAG}" \
-            dist/*.tar.gz \
-            dist/*.zip \
-            dist/checksums.txt \
-            --target "${GITHUB_SHA}" \
-            --title "Preview (${short_sha})" \
-            --notes-file "${notes_file}" \
-            --prerelease \
-            --latest=false
+          case "${release_status}" in
+            200)
+              gh release edit "${PREVIEW_TAG}" \
+                --target "${GITHUB_SHA}" \
+                --title "Preview (${short_sha})" \
+                --notes-file "${notes_file}" \
+                --prerelease \
+                --latest=false
+
+              gh release upload "${PREVIEW_TAG}" "${archives[@]}" dist/checksums.txt --clobber
+              ;;
+            404)
+              gh release create "${PREVIEW_TAG}" \
+                "${archives[@]}" \
+                dist/checksums.txt \
+                --target "${GITHUB_SHA}" \
+                --title "Preview (${short_sha})" \
+                --notes-file "${notes_file}" \
+                --prerelease \
+                --latest=false
+              ;;
+            *)
+              cat "${release_response}" >&2
+              echo "Unexpected GitHub API status while checking ${PREVIEW_TAG}: ${release_status}" >&2
+              exit 1
+              ;;
+          esac
