@@ -1,6 +1,6 @@
 package validation
 
-import "github.com/aliyun/yunxiao-cli/internal/model/output"
+import "github.com/nick3/yunxiao-cli/internal/model/output"
 
 func PageSize(pageSize int) *output.ErrorDetail {
 	if pageSize > 0 {

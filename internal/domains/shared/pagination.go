@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 )
 
 // SearchResponse is the common envelope returned by Yunxiao `:search` style endpoints.

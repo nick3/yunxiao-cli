@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aliyun/yunxiao-cli/internal/auth"
-	"github.com/aliyun/yunxiao-cli/internal/cli"
-	"github.com/aliyun/yunxiao-cli/internal/command/flagmeta"
-	"github.com/aliyun/yunxiao-cli/internal/command/validation"
-	"github.com/aliyun/yunxiao-cli/internal/config"
-	flowdomain "github.com/aliyun/yunxiao-cli/internal/domains/flow"
-	"github.com/aliyun/yunxiao-cli/internal/httpx"
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/auth"
+	"github.com/nick3/yunxiao-cli/internal/cli"
+	"github.com/nick3/yunxiao-cli/internal/command/flagmeta"
+	"github.com/nick3/yunxiao-cli/internal/command/validation"
+	"github.com/nick3/yunxiao-cli/internal/config"
+	flowdomain "github.com/nick3/yunxiao-cli/internal/domains/flow"
+	"github.com/nick3/yunxiao-cli/internal/httpx"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 	"github.com/spf13/cobra"
 )
 

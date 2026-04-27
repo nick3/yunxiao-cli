@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aliyun/yunxiao-cli/internal/httpx"
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/httpx"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 )
 
 func RequestJSON(ctx context.Context, client *httpx.Client, method, path string, target any) *output.ErrorDetail {
