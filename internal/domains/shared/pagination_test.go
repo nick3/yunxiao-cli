@@ -70,6 +70,36 @@ func TestDecodeSearchListRawArrayInvalidPerPageFallsBack(t *testing.T) {
 	require.Equal(t, 20, pagination.PageSize)
 }
 
+func TestDecodeSearchListRejectsInvalidCountPaginationHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		header string
+		value  string
+	}{
+		{name: "invalid page", header: "x-page", value: "abc"},
+		{name: "negative page", header: "x-page", value: "-1"},
+		{name: "invalid total pages", header: "x-total-pages", value: "abc"},
+		{name: "negative total pages", header: "x-total-pages", value: "-1"},
+		{name: "invalid total", header: "x-total", value: "abc"},
+		{name: "negative total", header: "x-total", value: "-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := http.Header{}
+			headers.Set(tc.header, tc.value)
+
+			data, pagination, errDetail := DecodeSearchList(json.RawMessage(`[{"id":"proj-1"}]`), headers, 20)
+
+			require.Nil(t, data)
+			require.Nil(t, pagination)
+			require.NotNil(t, errDetail)
+			require.Equal(t, "PAGINATION_INVALID", errDetail.Code)
+			require.Equal(t, "general", errDetail.Category)
+			require.Contains(t, errDetail.Message, tc.header)
+			require.Contains(t, errDetail.Message, tc.value)
+		})
+	}
+}
+
 func TestDecodeSearchListWrapperUsesBodyPagination(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("x-next-page", "header-token")
