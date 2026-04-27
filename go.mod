@@ -1,4 +1,4 @@
-module github.com/aliyun/yunxiao-cli
+module github.com/nick3/yunxiao-cli
 
 go 1.25.4
 

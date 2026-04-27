@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 	"golang.org/x/term"
 )
 

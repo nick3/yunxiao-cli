@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/aliyun/yunxiao-cli/internal/domains/shared"
-	"github.com/aliyun/yunxiao-cli/internal/httpx"
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/domains/shared"
+	"github.com/nick3/yunxiao-cli/internal/httpx"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 )
 
 func ListTestcases(ctx context.Context, client *httpx.Client, organizationID, testRepoID string, pageSize int, pageToken string) ([]map[string]any, *output.Pagination, *output.ErrorDetail) {

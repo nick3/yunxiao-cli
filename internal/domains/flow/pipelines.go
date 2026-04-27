@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/aliyun/yunxiao-cli/internal/domains/shared"
-	"github.com/aliyun/yunxiao-cli/internal/httpx"
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/domains/shared"
+	"github.com/nick3/yunxiao-cli/internal/httpx"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 )
 
 type ListPipelinesResponse struct {

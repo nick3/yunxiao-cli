@@ -3,8 +3,8 @@ package meta
 import (
 	"testing"
 
-	"github.com/aliyun/yunxiao-cli/internal/cli"
-	"github.com/aliyun/yunxiao-cli/internal/model/output"
+	"github.com/nick3/yunxiao-cli/internal/cli"
+	"github.com/nick3/yunxiao-cli/internal/model/output"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )
