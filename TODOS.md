@@ -29,7 +29,7 @@ Capability probes:
 - Which project participation filter is valid: `users`, `project.admin`, `collectMembers`, or another field?
 
 Desensitized results:
-- Organization-level `workitems:search` without `spaceId` returned HTTP 400 with upstream error code `InvaildData.Failed`, both with and without `assignedTo`; Phase 2 should not expose a cross-project workitem search command based on omitted `spaceId`.
+- Organization-level `workitems:search` without `spaceId` returned HTTP 400 with upstream error code `InvaildData.Failed` (upstream spelling observed as-is), both with and without `assignedTo`; Phase 2 should not expose a cross-project workitem search command based on omitted `spaceId`.
 - `org current` returned usable user and organization identifiers; project-scoped `workitems list` accepted the current user ID for both `--assigned-to` and `--creator` with successful JSON array responses.
 - Sampled project-scoped Task responses exposed `updateStatusAt`, `status`, `logicalStatus`, and `gmtModified`; `finishTime` and `statusStage` were not present as top-level response keys in the sampled items, while filters for `--finish-time-after`, `--update-status-at-after`, and `--status-stage` were accepted by the API.
 - Project participation filtering works through `--scenario-filter participate --user-id <current-user-id>`; `manage` and `favorite` were also accepted. The existing `--mine` shortcut maps to `participate` plus current user resolution.

@@ -718,6 +718,7 @@ func TestProjexWorkitemsListMineFailsFastOnIncompleteAggregate(t *testing.T) {
 		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
 		require.Contains(t, stdout, `"data": null`)
 		require.Contains(t, stderr, "wi-unknown")
+		require.Contains(t, stderr, "QA Review")
 	})
 
 	t.Run("conflicting status fields", func(t *testing.T) {
@@ -737,6 +738,8 @@ func TestProjexWorkitemsListMineFailsFastOnIncompleteAggregate(t *testing.T) {
 		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
 		require.Contains(t, stdout, `"data": null`)
 		require.Contains(t, stderr, "wi-conflict")
+		require.Contains(t, stderr, "已完成")
+		require.Contains(t, stderr, "open")
 	})
 
 	t.Run("conflicting logical status and status", func(t *testing.T) {
@@ -756,6 +759,8 @@ func TestProjexWorkitemsListMineFailsFastOnIncompleteAggregate(t *testing.T) {
 		require.Contains(t, stdout, `"code": "WORKITEM_STATUS_UNCLASSIFIED"`)
 		require.Contains(t, stdout, `"data": null`)
 		require.Contains(t, stderr, "wi-cross-conflict")
+		require.Contains(t, stderr, "COMPLETED")
+		require.Contains(t, stderr, "待处理")
 	})
 
 	t.Run("project workitem failure", func(t *testing.T) {

@@ -19,6 +19,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const maxAggregatePages = 10000
+
 func NewProjexCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "projex", Short: "Projex project commands"}
 	cmd.AddCommand(newProjectsCmd())
@@ -372,13 +374,14 @@ func listAllProjects(ctx context.Context, client *httpx.Client, organizationID s
 	items := make([]map[string]any, 0)
 	pageToken := ""
 	seenTokens := map[string]bool{}
-	for {
+	contextLabel := "participated project search"
+	for range maxAggregatePages {
 		data, pagination, errDetail := projexdomain.ListProjects(ctx, client, organizationID, pageSize, pageToken, opts)
 		if errDetail != nil {
 			return nil, errDetail
 		}
 		items = append(items, data...)
-		nextToken, hasMore, errDetail := nextAggregatePageToken(pagination, len(items), seenTokens, "participated project search")
+		nextToken, hasMore, errDetail := nextAggregatePageToken(pagination, len(items), seenTokens, contextLabel)
 		if errDetail != nil {
 			return nil, errDetail
 		}
@@ -388,6 +391,7 @@ func listAllProjects(ctx context.Context, client *httpx.Client, organizationID s
 		seenTokens[nextToken] = true
 		pageToken = nextToken
 	}
+	return nil, aggregatePageLimitError(contextLabel)
 }
 
 func listAllWorkitems(ctx context.Context, client *httpx.Client, organizationID, category, projectID string, pageSize int, opts projexdomain.WorkitemListOptions) ([]map[string]any, *output.ErrorDetail) {
@@ -395,7 +399,7 @@ func listAllWorkitems(ctx context.Context, client *httpx.Client, organizationID,
 	pageToken := ""
 	seenTokens := map[string]bool{}
 	contextLabel := fmt.Sprintf("workitem search for project %s", projectID)
-	for {
+	for range maxAggregatePages {
 		data, pagination, errDetail := projexdomain.ListWorkitems(ctx, client, organizationID, category, projectID, pageSize, pageToken, opts)
 		if errDetail != nil {
 			return nil, errDetail
@@ -411,6 +415,11 @@ func listAllWorkitems(ctx context.Context, client *httpx.Client, organizationID,
 		seenTokens[nextToken] = true
 		pageToken = nextToken
 	}
+	return nil, aggregatePageLimitError(contextLabel)
+}
+
+func aggregatePageLimitError(contextLabel string) *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "PAGINATION_INVALID", Category: "general", Retryable: false, Message: fmt.Sprintf("%s exceeded %d pages without completing", contextLabel, maxAggregatePages)}
 }
 
 func nextAggregatePageToken(pagination *output.Pagination, itemCount int, seenTokens map[string]bool, contextLabel string) (string, bool, *output.ErrorDetail) {
@@ -439,9 +448,10 @@ func filterUnfinishedWorkitems(items []map[string]any) ([]map[string]any, *outpu
 		completed, known := classifyWorkitemCompletion(item)
 		if !known {
 			workitemID, _ := strictStringMapField(item, "id")
-			message := fmt.Sprintf("cannot apply --unfinished because aggregate item %d has no recognizable completion status", i)
+			statusHint := workitemStatusHint(item)
+			message := fmt.Sprintf("cannot apply --unfinished because aggregate item %d has no recognizable completion status: %s", i, statusHint)
 			if workitemID != "" {
-				message = fmt.Sprintf("cannot apply --unfinished because workitem %s has no recognizable completion status", workitemID)
+				message = fmt.Sprintf("cannot apply --unfinished because workitem %s has no recognizable completion status: %s", workitemID, statusHint)
 			}
 			return nil, &output.ErrorDetail{Code: "WORKITEM_STATUS_UNCLASSIFIED", Category: "general", Retryable: false, Message: message}
 		}
@@ -492,6 +502,14 @@ func classifyStatusTexts(values []string) workitemCompletionStatus {
 	default:
 		return workitemCompletionUnknown
 	}
+}
+
+func workitemStatusHint(item map[string]any) string {
+	values := append(statusTextValues(item["logicalStatus"]), statusTextValues(item["status"])...)
+	if len(values) == 0 {
+		return "logicalStatus/status are empty"
+	}
+	return "logicalStatus/status values: " + strings.Join(values, ", ")
 }
 
 func statusTextValues(value any) []string {
