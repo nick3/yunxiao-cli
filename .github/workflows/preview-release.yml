@@ -39,6 +39,7 @@ jobs:
           args: release --snapshot --clean
         env:
           PREVIEW_VERSION: 0.0.0-preview.${{ github.run_number }}
+          PREVIEW_ASSET_VERSION: ${{ github.run_number }}
       - name: Publish preview release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
