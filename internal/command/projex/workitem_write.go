@@ -21,6 +21,25 @@ import (
 
 const maxWorkitemTextFileSize = 1024 * 1024
 
+var reservedWorkitemCustomFieldKeys = map[string]struct{}{
+	"assignedTo":        {},
+	"customFieldValues": {},
+	"description":       {},
+	"formatType":        {},
+	"labels":            {},
+	"parentId":          {},
+	"participants":      {},
+	"priority":          {},
+	"spaceId":           {},
+	"sprint":            {},
+	"status":            {},
+	"subject":           {},
+	"trackers":          {},
+	"verifier":          {},
+	"versions":          {},
+	"workitemTypeId":    {},
+}
+
 type workitemWriteFlags struct {
 	OrganizationID   string
 	WorkitemID       string
@@ -190,7 +209,7 @@ func buildWorkitemCreateInput(cmd *cobra.Command, flags workitemWriteFlags, spac
 	if !validateFormatType(flags.FormatType, format, meta) {
 		return projexdomain.WorkitemCreateInput{}, false
 	}
-	customFields, ok := mergeCustomFields(flags.CustomFields, flags.CustomFieldsJSON, format, meta)
+	customFields, ok := mergeCustomFields(flags.CustomFields, flags.CustomFieldsJSON, false, format, meta)
 	if !ok {
 		return projexdomain.WorkitemCreateInput{}, false
 	}
@@ -221,7 +240,7 @@ func buildWorkitemUpdateInput(cmd *cobra.Command, flags workitemWriteFlags, form
 	if !validateFormatType(flags.FormatType, format, meta) {
 		return projexdomain.WorkitemUpdateInput{}, false
 	}
-	customFields, ok := mergeCustomFields(flags.CustomFields, flags.CustomFieldsJSON, format, meta)
+	customFields, ok := mergeCustomFields(flags.CustomFields, flags.CustomFieldsJSON, true, format, meta)
 	if !ok {
 		return projexdomain.WorkitemUpdateInput{}, false
 	}
@@ -326,7 +345,7 @@ func csvFlag(cmd *cobra.Command, name, value string, format cli.OutputFormat, me
 	return out, true
 }
 
-func mergeCustomFields(pairs []string, rawJSON string, format cli.OutputFormat, meta *output.Meta) (map[string]any, bool) {
+func mergeCustomFields(pairs []string, rawJSON string, rejectReserved bool, format cli.OutputFormat, meta *output.Meta) (map[string]any, bool) {
 	merged := map[string]any{}
 	if rawJSON != "" {
 		if err := json.Unmarshal([]byte(rawJSON), &merged); err != nil {
@@ -337,12 +356,20 @@ func mergeCustomFields(pairs []string, rawJSON string, format cli.OutputFormat, 
 			exitWithError(format, meta, "PARAM_INVALID", "param", false, "custom_fields_json must be a JSON object")
 			return nil, false
 		}
+		for key := range merged {
+			if !validateCustomFieldKey(key, rejectReserved, format, meta) {
+				return nil, false
+			}
+		}
 	}
 	for _, pair := range pairs {
 		key, value, ok := strings.Cut(pair, "=")
 		key = strings.TrimSpace(key)
 		if !ok || key == "" {
 			exitWithError(format, meta, "PARAM_INVALID", "param", false, "custom_field must use key=value")
+			return nil, false
+		}
+		if !validateCustomFieldKey(key, rejectReserved, format, meta) {
 			return nil, false
 		}
 		if _, exists := merged[key]; exists {
@@ -355,6 +382,20 @@ func mergeCustomFields(pairs []string, rawJSON string, format cli.OutputFormat, 
 		return nil, true
 	}
 	return merged, true
+}
+
+func validateCustomFieldKey(key string, rejectReserved bool, format cli.OutputFormat, meta *output.Meta) bool {
+	if strings.TrimSpace(key) == "" {
+		exitWithError(format, meta, "PARAM_INVALID", "param", false, "custom_field key cannot be empty")
+		return false
+	}
+	if rejectReserved {
+		if _, exists := reservedWorkitemCustomFieldKeys[key]; exists {
+			exitWithError(format, meta, "PARAM_INVALID", "param", false, "custom_field key "+key+" conflicts with a standard workitem field")
+			return false
+		}
+	}
+	return true
 }
 
 func readWorkitemTextFile(path string) (string, *output.ErrorDetail) {

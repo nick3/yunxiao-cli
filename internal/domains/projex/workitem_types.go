@@ -68,10 +68,10 @@ func requestWorkitemTypeList(ctx context.Context, client *httpx.Client, path str
 	if errDetail := shared.RequestJSON(ctx, client, http.MethodGet, path, &body); errDetail != nil {
 		return nil, errDetail
 	}
-	return decodeArrayOrResult(body)
+	return decodeArrayOrResult(body, "workitem metadata")
 }
 
-func decodeArrayOrResult(body json.RawMessage) ([]map[string]any, *output.ErrorDetail) {
+func decodeArrayOrResult(body json.RawMessage, resourceName string) ([]map[string]any, *output.ErrorDetail) {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, &output.ErrorDetail{Code: "EMPTY_RESPONSE", Category: "general", Retryable: false, Message: "upstream returned an empty response body"}
@@ -79,34 +79,34 @@ func decodeArrayOrResult(body json.RawMessage) ([]map[string]any, *output.ErrorD
 	if body[0] == '[' {
 		var data []map[string]any
 		if err := json.Unmarshal(body, &data); err != nil {
-			return nil, decodeWorkitemMetadataError(err)
+			return nil, decodeWorkitemResponseError(err, resourceName)
 		}
 		return data, nil
 	}
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, decodeWorkitemMetadataError(err)
+		return nil, decodeWorkitemResponseError(err, resourceName)
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, decodeWorkitemMetadataError(err)
+		return nil, decodeWorkitemResponseError(err, resourceName)
 	}
 	if errDetail := detectBusinessError(envelope); errDetail != nil {
 		return nil, errDetail
 	}
 	result, ok := raw["result"]
 	if !ok {
-		return nil, unexpectedWorkitemListResponse()
+		return nil, unexpectedArrayOrResultResponse(resourceName)
 	}
 	var data []map[string]any
 	if err := json.Unmarshal(result, &data); err != nil || data == nil {
-		return nil, unexpectedWorkitemListResponse()
+		return nil, unexpectedArrayOrResultResponse(resourceName)
 	}
 	return data, nil
 }
 
-func unexpectedWorkitemListResponse() *output.ErrorDetail {
-	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode workitem metadata response: expected array or object with result array"}
+func unexpectedArrayOrResultResponse(resourceName string) *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: expected array or object with result array"}
 }
 
 func decodeObjectOrResult(body json.RawMessage) (map[string]any, *output.ErrorDetail) {
@@ -158,7 +158,24 @@ func decodeUpdateConfirmationOrResult(body json.RawMessage, resourceName string,
 
 func isExplicitSuccessOnly(data map[string]any) bool {
 	success, ok := data["success"].(bool)
-	return ok && success && len(data) == 1
+	if !ok || !success {
+		return false
+	}
+	for key := range data {
+		if key != "success" && !isSuccessMetadataKey(key) {
+			return false
+		}
+	}
+	return true
+}
+
+func isSuccessMetadataKey(key string) bool {
+	switch key {
+	case "requestId", "RequestId", "requestID", "RequestID", "traceId", "TraceId", "traceID", "TraceID":
+		return true
+	default:
+		return false
+	}
 }
 
 func hasResourceIdentity(data map[string]any, keys ...string) bool {
@@ -203,7 +220,11 @@ func upstreamBusinessError(data map[string]any) *output.ErrorDetail {
 }
 
 func decodeWorkitemMetadataError(err error) *output.ErrorDetail {
-	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: fmt.Sprintf("failed to decode workitem metadata response: %v", err)}
+	return decodeWorkitemResponseError(err, "workitem metadata")
+}
+
+func decodeWorkitemResponseError(err error, resourceName string) *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: fmt.Sprintf("failed to decode "+resourceName+" response: %v", err)}
 }
 
 func workitemTypesPath(baseURL, organizationID string) string {

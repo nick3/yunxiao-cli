@@ -24,7 +24,7 @@ func ListWorkitemComments(ctx context.Context, client *httpx.Client, organizatio
 	if errDetail != nil {
 		return nil, nil, errDetail
 	}
-	data, errDetail := decodeArrayOrResult(body)
+	data, errDetail := decodeArrayOrResult(body, "workitem comments")
 	if errDetail != nil {
 		return nil, nil, errDetail
 	}

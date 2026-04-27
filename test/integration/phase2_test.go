@@ -1077,6 +1077,33 @@ func TestProjexWorkitemCreateCallsRegionYunxiaoAPI(t *testing.T) {
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexWorkitemCreateAllowsReservedCustomFieldKeys(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/workitems", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"spaceId":"proj-1","workitemTypeId":"type-1","subject":"fix bug","assignedTo":"user-1","customFieldValues":{"subject":"custom subject","assignedTo":"custom assignee"}}`, string(body))
+		fmt.Fprint(w, `{"id":"wi-1","subject":"fix bug"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "workitem", "create", "--organization-id", "org-123", "--space-id", "proj-1", "--workitem-type-id", "type-1", "--subject", "fix bug", "--assigned-to", "user-1", "--custom-field", "subject=custom subject", "--custom-fields-json", `{"assignedTo":"custom assignee"}`, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"wi-1","subject":"fix bug"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
 func TestProjexWorkitemCreateAcceptsProjectIDAliasAndAssignedToSelf(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
@@ -1312,6 +1339,48 @@ func TestProjexWorkitemUpdateSendsStandardAndCustomFieldsAtTopLevel(t *testing.T
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexWorkitemUpdateRejectsReservedCustomFieldKeysBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "pair", args: []string{"--custom-field", "subject=override"}},
+		{name: "json", args: []string{"--custom-fields-json", `{"assignedTo":"user-2"}`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json"}
+			args = append(args, tc.args...)
+			cmd := exec.Command(binary, args...)
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.Error(t, err)
+			exitErr, ok := err.(*exec.ExitError)
+			require.True(t, ok)
+			require.Equal(t, 2, exitErr.ExitCode())
+			require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+			require.Contains(t, stdout.String(), "conflicts with a standard workitem field")
+			require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+			require.Empty(t, stderr.String())
+		})
+	}
+	require.Equal(t, 0, requests)
+}
+
 func TestProjexWorkitemUpdateResolvesAssignedToSelf(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
@@ -1350,24 +1419,38 @@ func TestProjexWorkitemUpdateAcceptsExplicitSuccessConfirmation(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPut, r.Method)
-		require.Equal(t, "/oapi/v1/projex/workitems/wi-1", r.URL.Path)
-		fmt.Fprint(w, `{"success":true}`)
-	}))
-	defer server.Close()
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "success only", body: `{"success":true}`},
+		{name: "success with request id", body: `{"success":true,"requestId":"req-1"}`},
+		{name: "success with uppercase request id", body: `{"success":true,"RequestId":"req-1"}`},
+		{name: "success with request ID", body: `{"success":true,"requestID":"req-1"}`},
+		{name: "success with trace id", body: `{"success":true,"traceId":"trace-1"}`},
+		{name: "success with trace ID", body: `{"success":true,"traceID":"trace-1"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodPut, r.Method)
+				require.Equal(t, "/oapi/v1/projex/workitems/wi-1", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
 
-	cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json")
-	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+			cmd := exec.Command(binary, "projex", "workitem", "update", "--organization-id", "org-123", "--workitem-id", "wi-1", "--subject", "new subject", "--yes", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	require.NoError(t, err)
-	require.JSONEq(t, `{"version":"v1","data":{"workitem_id":"wi-1","updated":true},"meta":{},"error":null}`, stdout.String())
-	require.Empty(t, stderr.String())
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":"v1","data":{"workitem_id":"wi-1","updated":true},"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
 }
 
 func TestProjexWorkitemUpdateRejectsAmbiguousSuccessResponses(t *testing.T) {
@@ -1381,7 +1464,7 @@ func TestProjexWorkitemUpdateRejectsAmbiguousSuccessResponses(t *testing.T) {
 		{name: "code only", body: `{"code":"InvalidParameter"}`},
 		{name: "unexpected object", body: `{"unexpected":true}`},
 		{name: "success with empty result", body: `{"success":true,"result":{}}`},
-		{name: "success with request id", body: `{"success":true,"requestId":"req-1"}`},
+		{name: "success with unexpected metadata", body: `{"success":true,"unexpected":"value"}`},
 		{name: "success with unexpected result", body: `{"success":true,"result":{"unexpected":true}}`},
 		{name: "queued result", body: `{"result":{"queued":true}}`},
 	} {
@@ -1654,12 +1737,13 @@ func TestProjexListCommandsRejectUnexpectedObjectResponse(t *testing.T) {
 	binary := buildTestBinary(t, root)
 
 	for _, tc := range []struct {
-		name string
-		args []string
-		path string
+		name     string
+		args     []string
+		path     string
+		resource string
 	}{
-		{name: "comments", args: []string{"projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments"},
-		{name: "workitem types", args: []string{"projex", "workitem-types", "list", "--organization-id", "org-123", "--all", "--json"}, path: "/oapi/v1/projex/workitemTypes"},
+		{name: "comments", args: []string{"projex", "workitem", "comments", "list", "--organization-id", "org-123", "--workitem-id", "wi-1", "--json"}, path: "/oapi/v1/projex/workitems/wi-1/comments", resource: "workitem comments"},
+		{name: "workitem types", args: []string{"projex", "workitem-types", "list", "--organization-id", "org-123", "--all", "--json"}, path: "/oapi/v1/projex/workitemTypes", resource: "workitem metadata"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1683,6 +1767,7 @@ func TestProjexListCommandsRejectUnexpectedObjectResponse(t *testing.T) {
 			require.Equal(t, 1, exitErr.ExitCode())
 			require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
 			require.Contains(t, stdout.String(), `"data": null`)
+			require.Contains(t, stderr.String(), "failed to decode "+tc.resource+" response")
 			require.Contains(t, stderr.String(), "expected array or object with result array")
 		})
 	}
