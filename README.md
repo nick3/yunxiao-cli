@@ -164,6 +164,10 @@ yunxiao projex projects list --organization-id <org-id> --json
 # 查看当前账号参与的项目（不可与 --scenario-filter / --user-id 混用）：
 yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org-id> --project-id <project-id> --json
+yunxiao projex project-templates list --organization-id <org-id> --json
+yunxiao projex project-template fields --organization-id <org-id> --template-id <template-id> --json
+yunxiao projex project create --organization-id <org-id> --name <test-project-name> --custom-code <CODE> --template-id <template-id> --scope private --description "Created by yunxiao-cli smoke test" --yes --json
+yunxiao projex project archive --organization-id <org-id> --project-id <project-id> --yes --json
 yunxiao projex workitems list --organization-id <org-id> --category <category> --project-id <project-id> --json
 # 查看当前账号在参与项目中分配给自己的工作项；可加 --unfinished 过滤已完成项：
 yunxiao projex workitems list --mine --unfinished --category Task --json
@@ -182,7 +186,7 @@ yunxiao projex sprints list --organization-id <org-id> --project-id <project-id>
 # 可选：通过 --status <status-list> 过滤迭代状态
 ```
 
-Projex 提供项目/空间内列表枚举、已知 ID 详情查询，以及显式确认的工作项写操作。`projects list` 支持与 MCP server 对齐的 `--name`、`--status`、`--admin-user-id`、`--scenario-filter`、`--user-id`、`--advanced-conditions`、`--extra-conditions` 等查询条件；`--advanced-conditions` 会覆盖基础项目条件，`--scenario-filter` 与 `--user-id` 同时存在时会覆盖 `--extra-conditions`。`projects list --mine` 等价于按当前用户参与项目过滤，且不可与显式 `--scenario-filter` / `--user-id` 混用。普通 `workitems list` 仍需要明确的 `--organization-id`、`--project-id` 或 `--space-id`、以及 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件；`--project-id` 是面向用户和 Agent 的项目 ID 参数，`--space-id` 保留为兼容底层 API 命名的等价别名。`workitems list --mine` 会解析当前用户、枚举当前用户参与的项目，再逐项目查询分配给当前用户的工作项；`--unfinished` 只能与 `--mine` 搭配，用于过滤已完成工作项，遇到无法识别完成状态的工作项会返回错误而不是猜测。`workitem create`、`workitem update`、`workitem comment create` 会写入云效，必须显式传 `--yes`；`workitem create` 支持 `--project-id` 或兼容用的 `--space-id`，`workitem create/update --assigned-to self` 会解析当前用户 ID。描述和评论正文可通过 `--description-file` / `--content-file` 从 UTF-8 普通文件读取，文件必须非空且不超过 1MiB。创建时自定义字段会发送为 `customFieldValues`，更新时自定义字段会按官方 MCP server 调用逻辑展开到 request body 顶层。本周完成等时间聚合查询尚未成为公共命令契约。
+Projex 提供项目/空间内列表枚举、已知 ID 详情查询、项目模板发现、显式确认的测试项目生命周期操作，以及显式确认的工作项写操作。`projects list` 支持与 MCP server 对齐的 `--name`、`--status`、`--admin-user-id`、`--scenario-filter`、`--user-id`、`--advanced-conditions`、`--extra-conditions` 等查询条件；`--advanced-conditions` 会覆盖基础项目条件，`--scenario-filter` 与 `--user-id` 同时存在时会覆盖 `--extra-conditions`。`projects list --mine` 等价于按当前用户参与项目过滤，且不可与显式 `--scenario-filter` / `--user-id` 混用。`project-templates list` 和 `project-template fields` 用于在创建测试项目前发现模板和字段配置，Agent 不应猜测 `template-id`。`project create` 与 `project archive` 会写入云效，必须显式传 `--yes`；创建 smoke-test 项目时使用明显测试名前缀、`--scope private`，归档是支持的清理路径，不要在归档失败后尝试删除项目。普通 `workitems list` 仍需要明确的 `--organization-id`、`--project-id` 或 `--space-id`、以及 `--category`，并支持与 MCP server 对齐的 `--status`、`--assigned-to`、`--finish-time-after` 等查询条件；`--project-id` 是面向用户和 Agent 的项目 ID 参数，`--space-id` 保留为兼容底层 API 命名的等价别名。`workitems list --mine` 会解析当前用户、枚举当前用户参与的项目，再逐项目查询分配给当前用户的工作项；`--unfinished` 只能与 `--mine` 搭配，用于过滤已完成工作项，遇到无法识别完成状态的工作项会返回错误而不是猜测。`workitem create`、`workitem update`、`workitem comment create` 会写入云效，必须显式传 `--yes`；`workitem create` 支持 `--project-id` 或兼容用的 `--space-id`，`workitem create/update --assigned-to self` 会解析当前用户 ID。描述和评论正文可通过 `--description-file` / `--content-file` 从 UTF-8 普通文件读取，文件必须非空且不超过 1MiB。创建时自定义字段会发送为 `customFieldValues`，更新时自定义字段会按官方 MCP server 调用逻辑展开到 request body 顶层。本周完成等时间聚合查询尚未成为公共命令契约。
 
 ### 查看制品仓库和制品
 

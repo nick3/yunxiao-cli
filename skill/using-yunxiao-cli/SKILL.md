@@ -81,6 +81,10 @@ yunxiao projex projects list --organization-id <org> --json
 # 中心站可省略 --organization-id；若 lastOrganizationId 为空会返回 PARAM_REQUIRED。当前账号参与项目可用：
 yunxiao projex projects list --mine --json
 yunxiao projex project get --organization-id <org> --project-id <project> --json
+yunxiao projex project-templates list --organization-id <org> --json
+yunxiao projex project-template fields --organization-id <org> --template-id <template> --json
+yunxiao projex project create --organization-id <org> --name <test-project-name> --custom-code <CODE> --template-id <template> --scope private --description "Created by yunxiao-cli smoke test" --yes --json
+yunxiao projex project archive --organization-id <org> --project-id <project> --yes --json
 yunxiao projex workitems list --organization-id <org> --category <category> --project-id <project> --json
 yunxiao projex workitems list --mine --unfinished --category Task --json
 yunxiao projex workitem get --organization-id <org> --workitem-id <workitem> --json
@@ -106,7 +110,72 @@ yunxiao raw request --method GET --path /oapi/... --json
 
 ## Projex Scope
 
-Projex commands support project/space-scoped list enumeration, known-ID detail reads, workitem type metadata, comments, and explicit-confirmation workitem writes. `projex projects list` can auto-resolve the central-edition organization from `org current.lastOrganizationId`, supports MCP-compatible filters such as `--name`, `--status`, `--admin-user-id`, `--scenario-filter`, `--user-id`, `--advanced-conditions`, and `--extra-conditions`, and exposes `--mine` for projects participated in by the current user. `projects list --mine` is mutually exclusive with explicit `--scenario-filter` / `--user-id`; `--advanced-conditions` overrides basic project filters, while `--scenario-filter` plus `--user-id` overrides `--extra-conditions`. Plain `projex workitems list` requires explicit `--organization-id`, `--category`, and `--project-id` or `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`; prefer `--project-id` in Agent workflows and use `--space-id` only for compatibility with API wording. `projex workitems list --mine --category Task` resolves the current user, enumerates participated projects, and returns workitems assigned to that user across those projects; add `--unfinished` to filter completed workitems from that aggregated result. In `--mine` mode, `--project-id`, `--space-id`, `--page-token`, `--assigned-to`, and `--advanced-conditions` are rejected with `PARAM_INVALID`. `--unfinished` is only valid with `--mine` and fails instead of guessing when a workitem completion status is not recognizable. `projex workitem create`, `projex workitem update`, and `projex workitem comment create` write to Yunxiao and must include `--yes`; without `--yes` they fail before auth or HTTP. `workitem create` accepts `--project-id` or `--space-id`; if both are set they must match. `workitem create/update --assigned-to self` resolves the current user ID before sending the write. `--description-file` and `--content-file` read UTF-8 regular files only, reject empty files, and cap input at 1MiB. Create sends `customFieldValues` as a nested object; update expands `--custom-field` / `--custom-fields-json` entries to top-level fields, matching the official Yunxiao MCP server. Do not assume direct organization-level workitem search or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
+Projex commands support project/space-scoped list enumeration, known-ID detail reads, project template discovery, safe test project lifecycle writes, workitem type metadata, comments, and explicit-confirmation workitem writes. `projex projects list` can auto-resolve the central-edition organization from `org current.lastOrganizationId`, supports MCP-compatible filters such as `--name`, `--status`, `--admin-user-id`, `--scenario-filter`, `--user-id`, `--advanced-conditions`, and `--extra-conditions`, and exposes `--mine` for projects participated in by the current user. `projects list --mine` is mutually exclusive with explicit `--scenario-filter` / `--user-id`; `--advanced-conditions` overrides basic project filters, while `--scenario-filter` plus `--user-id` overrides `--extra-conditions`. `projex project-templates list` and `projex project-template fields` are required before project creation because `template-id` must come from upstream data or the user. `projex project create` and `projex project archive` write to Yunxiao and must include `--yes`; use them only for clearly named private test projects unless the user explicitly confirms another target. Plain `projex workitems list` requires explicit `--organization-id`, `--category`, and `--project-id` or `--space-id`, and exposes MCP-compatible filters such as `--status`, `--assigned-to`, `--finish-time-after`, `--update-status-at-after`, `--order-by`, and `--sort`; prefer `--project-id` in Agent workflows and use `--space-id` only for compatibility with API wording. `projex workitems list --mine --category Task` resolves the current user, enumerates participated projects, and returns workitems assigned to that user across those projects; add `--unfinished` to filter completed workitems from that aggregated result. In `--mine` mode, `--project-id`, `--space-id`, `--page-token`, `--assigned-to`, and `--advanced-conditions` are rejected with `PARAM_INVALID`. `--unfinished` is only valid with `--mine` and fails instead of guessing when a workitem completion status is not recognizable. `projex workitem create`, `projex workitem update`, and `projex workitem comment create` write to Yunxiao and must include `--yes`; without `--yes` they fail before auth or HTTP. `workitem create` accepts `--project-id` or `--space-id`; if both are set they must match. `workitem create/update --assigned-to self` resolves the current user ID before sending the write. `--description-file` and `--content-file` read UTF-8 regular files only, reject empty files, and cap input at 1MiB. Create sends `customFieldValues` as a nested object; update expands `--custom-field` / `--custom-fields-json` entries to top-level fields, matching the official Yunxiao MCP server. Do not assume direct organization-level workitem search or this-week completion aggregation are public CLI contracts. Use `commands --json` and `--help --json` before calling Projex commands, and treat unsupported business filters as capability gaps.
+
+## Projex Safe Smoke Test Playbook
+
+Use this playbook when validating whether Yunxiao CLI and this skill can complete common Projex workflows without touching real project data.
+
+1. Discover identity and organization:
+
+   ```bash
+   yunxiao auth status --json
+   yunxiao org current --json
+   ```
+
+2. Discover current read context without writing:
+
+   ```bash
+   yunxiao projex projects list --mine --json
+   yunxiao projex workitems list --mine --unfinished --category Task --json
+   yunxiao projex workitems list --mine --unfinished --category Req --json
+   yunxiao projex workitems list --mine --unfinished --category Bug --json
+   ```
+
+3. Read a real workitem only when the user has approved that read target:
+
+   ```bash
+   yunxiao projex workitem get --organization-id <org> --workitem-id <workitem> --json
+   yunxiao projex workitem comments list --organization-id <org> --workitem-id <workitem> --json
+   ```
+
+4. Discover templates before creating a project. Do not guess `template-id`:
+
+   ```bash
+   yunxiao projex project-templates list --organization-id <org> --json
+   yunxiao projex project-template fields --organization-id <org> --template-id <template> --json
+   ```
+
+5. Before creating the test project, present the exact target and payload to the user: organization, template, name, custom code, scope, description, and custom fields. Continue only after explicit confirmation. Use an obvious test name prefix and `--scope private`:
+
+   ```bash
+   yunxiao projex project create \
+     --organization-id <org> \
+     --name "yunxiao-cli-test-<timestamp>" \
+     --custom-code <CODE> \
+     --template-id <template> \
+     --scope private \
+     --description "Created by yunxiao-cli smoke test" \
+     --yes \
+     --json
+   ```
+
+6. Write only inside the test project. Before every command that includes `--yes`, preview the exact target and payload and wait for explicit confirmation:
+
+   ```bash
+   yunxiao projex workitem-types list --organization-id <org> --project-id <project> --category Task --json
+   yunxiao projex workitem create --organization-id <org> --project-id <project> --workitem-type-id <type> --subject <subject> --assigned-to self --yes --json
+   yunxiao projex workitem comment create --organization-id <org> --workitem-id <workitem> --content <content> --yes --json
+   yunxiao projex workitem update --organization-id <org> --workitem-id <workitem> --subject <subject> --yes --json
+   ```
+
+7. Archive the test project as cleanup:
+
+   ```bash
+   yunxiao projex project archive --organization-id <org> --project-id <project> --yes --json
+   ```
+
+8. If archive fails, report the project ID and the structured `.error` object. Do not attempt hard delete as a fallback, and do not use `raw request` for write fallback.
 
 ## Projex Workitem Write Playbook
 
