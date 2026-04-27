@@ -110,6 +110,7 @@ func TestCommandsJSONIncludesPhase1Commands(t *testing.T) {
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex project-templates list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex project-template fields"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex project create"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex project archive"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comments list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comment create"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth login"`)
@@ -166,6 +167,7 @@ func TestPhase1GapCommandHelpJSONIncludesRequiredFlags(t *testing.T) {
 		{name: "projex project-templates list", args: []string{"projex", "project-templates", "list"}, required: []string{"organization-id"}},
 		{name: "projex project-template fields", args: []string{"projex", "project-template", "fields"}, required: []string{"organization-id", "template-id"}},
 		{name: "projex project create", args: []string{"projex", "project", "create"}, required: []string{"organization-id", "name", "custom-code", "template-id", "scope", "yes"}, optional: []string{"description", "description-file", "custom-field", "custom-fields-json"}},
+		{name: "projex project archive", args: []string{"projex", "project", "archive"}, required: []string{"organization-id", "project-id", "yes"}, optional: []string{"operator-id"}},
 		{name: "projex workitem-types list all", args: []string{"projex", "workitem-types", "list"}, required: []string{"organization-id"}, optional: []string{"all", "project-id", "category"}},
 		{name: "projex workitem-type get", args: []string{"projex", "workitem-type", "get"}, required: []string{"organization-id", "workitem-type-id"}},
 		{name: "projex workitem-types relations", args: []string{"projex", "workitem-types", "relations"}, required: []string{"organization-id", "workitem-type-id"}},

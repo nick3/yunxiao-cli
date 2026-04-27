@@ -79,6 +79,23 @@ func CreateProject(ctx context.Context, client *httpx.Client, organizationID str
 	return decodeResourceObjectOrResult(body, "project create", "id", "identifier", "projectId")
 }
 
+func ArchiveProject(ctx context.Context, client *httpx.Client, organizationID, projectID, operatorID string) (*ProjectArchiveResult, *output.ErrorDetail) {
+	var payload any
+	if operatorID != "" {
+		payload = map[string]any{"operatorId": operatorID}
+	}
+
+	path := "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projects/" + url.PathEscape(projectID) + "/archived"
+	var body json.RawMessage
+	if errDetail := shared.RequestJSONWithBody(ctx, client, http.MethodPost, path, payload, &body); errDetail != nil {
+		return nil, errDetail
+	}
+	if errDetail := decodeUpdateConfirmationOrResult(body, "project archive", "id", "identifier", "projectId"); errDetail != nil {
+		return nil, errDetail
+	}
+	return &ProjectArchiveResult{ProjectID: projectID, Archived: true}, nil
+}
+
 type ProjectCreateInput struct {
 	Name              string
 	CustomCode        string
@@ -86,6 +103,11 @@ type ProjectCreateInput struct {
 	Scope             string
 	Description       string
 	CustomFieldValues map[string]any
+}
+
+type ProjectArchiveResult struct {
+	ProjectID string `json:"project_id"`
+	Archived  bool   `json:"archived"`
 }
 
 type ProjectListOptions struct {

@@ -621,6 +621,90 @@ func TestProjexProjectCreateSurfacesBusinessErrors(t *testing.T) {
 	require.Contains(t, stderr.String(), "project create failed")
 }
 
+func TestProjexProjectArchivePostsArchivedAndAcceptsSuccessConfirmation(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"operatorId":"operator-1"`)
+		fmt.Fprint(w, `{"success":true,"requestId":"req-1"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--operator-id", "operator-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"project_id":"proj-1","archived":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectArchiveRejectsMissingYesBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "yes is required")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectArchiveRejectsAmbiguousSuccessResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		fmt.Fprint(w, `{"success":true,"unexpected":"value"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 1, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+	require.Contains(t, stdout.String(), "explicit success confirmation")
+	require.Contains(t, stderr.String(), "project archive failed")
+}
+
 func TestPackagesArtifactsListCallsYunxiaoAPI(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
