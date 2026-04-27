@@ -44,6 +44,7 @@ func newProjectsCmd() *cobra.Command {
 func newProjectCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "project", Short: "Project commands"}
 	cmd.AddCommand(newProjectGetCmd())
+	cmd.AddCommand(newProjectCreateCmd())
 	return cmd
 }
 
@@ -212,6 +213,115 @@ func newProjectGetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&projectID, "project-id", "", "Project ID")
 	flagmeta.MustMarkRequired(cmd, "organization-id", "project-id")
 	return cmd
+}
+
+type projectCreateFlags struct {
+	OrganizationID   string
+	Name             string
+	CustomCode       string
+	TemplateID       string
+	Scope            string
+	Description      string
+	DescriptionFile  string
+	CustomFields     []string
+	CustomFieldsJSON string
+	Yes              bool
+}
+
+func newProjectCreateCmd() *cobra.Command {
+	var flags projectCreateFlags
+	cmd := &cobra.Command{Use: "create", Short: "Create a project", RunE: func(cmd *cobra.Command, args []string) error {
+		format := cli.GetOutputFormat()
+		meta := &output.Meta{}
+		if !flags.Yes {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "yes is required because creating a project writes to Yunxiao")
+			return nil
+		}
+		orgID := config.GetOrganizationID(flags.OrganizationID)
+		if orgID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "organization_id is required")
+			return nil
+		}
+		if flags.Name == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "name is required")
+			return nil
+		}
+		if !validProjectCustomCode(flags.CustomCode) {
+			exitWithError(format, meta, "PARAM_INVALID", "param", false, "custom_code must be 4 to 6 uppercase ASCII letters")
+			return nil
+		}
+		if flags.TemplateID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "template_id is required")
+			return nil
+		}
+		if !validProjectScope(flags.Scope) {
+			exitWithError(format, meta, "PARAM_INVALID", "param", false, "scope must be public or private")
+			return nil
+		}
+		input, ok := buildProjectCreateInput(cmd, flags, format, meta)
+		if !ok {
+			return nil
+		}
+		client, ok := newAPIClient(cmd, format, meta)
+		if !ok {
+			return nil
+		}
+		data, errDetail := projexdomain.CreateProject(context.Background(), client, orgID, input)
+		if errDetail != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] project create failed: %s\n", errDetail.Message)
+			os.Exit(cli.WriteError(errDetail, meta, format))
+			return nil
+		}
+		if code := cli.WriteResult(data, meta, format); code != cli.ExitSuccess {
+			os.Exit(code)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&flags.OrganizationID, "organization-id", "", "Organization ID")
+	cmd.Flags().StringVar(&flags.Name, "name", "", "Project name")
+	cmd.Flags().StringVar(&flags.CustomCode, "custom-code", "", "Project custom code: 4 to 6 uppercase ASCII letters")
+	cmd.Flags().StringVar(&flags.TemplateID, "template-id", "", "Project template ID")
+	cmd.Flags().StringVar(&flags.Scope, "scope", "", "Project scope: public or private")
+	cmd.Flags().StringVar(&flags.Description, "description", "", "Project description")
+	cmd.Flags().StringVar(&flags.DescriptionFile, "description-file", "", "Read project description from a UTF-8 text file")
+	cmd.Flags().StringArrayVar(&flags.CustomFields, "custom-field", nil, "Custom field as key=value; repeatable")
+	cmd.Flags().StringVar(&flags.CustomFieldsJSON, "custom-fields-json", "", "Custom fields JSON object")
+	cmd.Flags().BoolVar(&flags.Yes, "yes", false, "Confirm this write operation")
+	flagmeta.MustMarkRequired(cmd, "organization-id", "name", "custom-code", "template-id", "scope", "yes")
+	return cmd
+}
+
+func buildProjectCreateInput(cmd *cobra.Command, flags projectCreateFlags, format cli.OutputFormat, meta *output.Meta) (projexdomain.ProjectCreateInput, bool) {
+	description, ok := resolveTextValue(cmd, "description", flags.Description, flags.DescriptionFile, "description", format, meta)
+	if !ok {
+		return projexdomain.ProjectCreateInput{}, false
+	}
+	customFields, ok := mergeCustomFields(flags.CustomFields, flags.CustomFieldsJSON, false, format, meta)
+	if !ok {
+		return projexdomain.ProjectCreateInput{}, false
+	}
+	return projexdomain.ProjectCreateInput{Name: flags.Name, CustomCode: flags.CustomCode, TemplateID: flags.TemplateID, Scope: flags.Scope, Description: description, CustomFieldValues: customFields}, true
+}
+
+func validProjectCustomCode(value string) bool {
+	if len(value) < 4 || len(value) > 6 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < 'A' || value[i] > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+func validProjectScope(value string) bool {
+	switch value {
+	case "public", "private":
+		return true
+	default:
+		return false
+	}
 }
 
 func newProjectTemplatesListCmd() *cobra.Command {

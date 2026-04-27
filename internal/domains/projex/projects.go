@@ -57,6 +57,37 @@ func GetProjectTemplateFields(ctx context.Context, client *httpx.Client, organiz
 	return decodeObjectOrResult(body, "project template fields")
 }
 
+func CreateProject(ctx context.Context, client *httpx.Client, organizationID string, input ProjectCreateInput) (map[string]any, *output.ErrorDetail) {
+	path := "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projects"
+	payload := map[string]any{
+		"name":       input.Name,
+		"customCode": input.CustomCode,
+		"scope":      input.Scope,
+		"templateId": input.TemplateID,
+	}
+	if input.Description != "" {
+		payload["description"] = input.Description
+	}
+	if len(input.CustomFieldValues) > 0 {
+		payload["customFieldValues"] = input.CustomFieldValues
+	}
+
+	var body json.RawMessage
+	if errDetail := shared.RequestJSONWithBody(ctx, client, http.MethodPost, path, payload, &body); errDetail != nil {
+		return nil, errDetail
+	}
+	return decodeResourceObjectOrResult(body, "project create", "id", "identifier", "projectId")
+}
+
+type ProjectCreateInput struct {
+	Name              string
+	CustomCode        string
+	TemplateID        string
+	Scope             string
+	Description       string
+	CustomFieldValues map[string]any
+}
+
 type ProjectListOptions struct {
 	Name               string
 	Status             string
