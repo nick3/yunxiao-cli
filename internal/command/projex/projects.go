@@ -25,6 +25,8 @@ func NewProjexCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "projex", Short: "Projex project commands"}
 	cmd.AddCommand(newProjectsCmd())
 	cmd.AddCommand(newProjectCmd())
+	cmd.AddCommand(newProjectTemplatesCmd())
+	cmd.AddCommand(newProjectTemplateCmd())
 	cmd.AddCommand(newWorkitemsCmd())
 	cmd.AddCommand(newWorkitemCmd())
 	cmd.AddCommand(newWorkitemTypesCmd())
@@ -42,6 +44,18 @@ func newProjectsCmd() *cobra.Command {
 func newProjectCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "project", Short: "Project commands"}
 	cmd.AddCommand(newProjectGetCmd())
+	return cmd
+}
+
+func newProjectTemplatesCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "project-templates", Short: "Project template collection commands"}
+	cmd.AddCommand(newProjectTemplatesListCmd())
+	return cmd
+}
+
+func newProjectTemplateCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "project-template", Short: "Project template commands"}
+	cmd.AddCommand(newProjectTemplateFieldsCmd())
 	return cmd
 }
 
@@ -197,6 +211,71 @@ func newProjectGetCmd() *cobra.Command {
 	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
 	cmd.Flags().StringVar(&projectID, "project-id", "", "Project ID")
 	flagmeta.MustMarkRequired(cmd, "organization-id", "project-id")
+	return cmd
+}
+
+func newProjectTemplatesListCmd() *cobra.Command {
+	var organizationID string
+	cmd := &cobra.Command{Use: "list", Short: "List project templates", RunE: func(cmd *cobra.Command, args []string) error {
+		format := cli.GetOutputFormat()
+		meta := &output.Meta{}
+		orgID := config.GetOrganizationID(organizationID)
+		if orgID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "organization_id is required")
+			return nil
+		}
+		client, ok := newAPIClient(cmd, format, meta)
+		if !ok {
+			return nil
+		}
+		data, errDetail := projexdomain.ListProjectTemplates(context.Background(), client, orgID)
+		if errDetail != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] project template list failed: %s\n", errDetail.Message)
+			os.Exit(cli.WriteError(errDetail, meta, format))
+			return nil
+		}
+		if code := cli.WriteResult(data, meta, format); code != cli.ExitSuccess {
+			os.Exit(code)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
+	flagmeta.MustMarkRequired(cmd, "organization-id")
+	return cmd
+}
+
+func newProjectTemplateFieldsCmd() *cobra.Command {
+	var organizationID, templateID string
+	cmd := &cobra.Command{Use: "fields", Short: "Get project template field config", RunE: func(cmd *cobra.Command, args []string) error {
+		format := cli.GetOutputFormat()
+		meta := &output.Meta{}
+		orgID := config.GetOrganizationID(organizationID)
+		if orgID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "organization_id is required")
+			return nil
+		}
+		if templateID == "" {
+			exitWithError(format, meta, "PARAM_REQUIRED", "param", false, "template_id is required")
+			return nil
+		}
+		client, ok := newAPIClient(cmd, format, meta)
+		if !ok {
+			return nil
+		}
+		data, errDetail := projexdomain.GetProjectTemplateFields(context.Background(), client, orgID, templateID)
+		if errDetail != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] project template fields lookup failed: %s\n", errDetail.Message)
+			os.Exit(cli.WriteError(errDetail, meta, format))
+			return nil
+		}
+		if code := cli.WriteResult(data, meta, format); code != cli.ExitSuccess {
+			os.Exit(code)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&organizationID, "organization-id", "", "Organization ID")
+	cmd.Flags().StringVar(&templateID, "template-id", "", "Project template ID")
+	flagmeta.MustMarkRequired(cmd, "organization-id", "template-id")
 	return cmd
 }
 

@@ -265,6 +265,78 @@ func TestProjexProjectGetCallsYunxiaoAPI(t *testing.T) {
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexProjectTemplatesListDecodesArrayAndWrappedArray(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "array", body: `[{"id":"tmpl-1","name":"Basic"}]`},
+		{name: "wrapped result", body: `{"result":[{"id":"tmpl-1","name":"Basic"}]}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/projex/organizations/org-123/projectTemplates", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "project-templates", "list", "--organization-id", "org-123", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":"v1","data":[{"id":"tmpl-1","name":"Basic"}],"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexProjectTemplateFieldsDecodesObjectAndWrappedObject(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "object", body: `{"fields":[{"identifier":"priority"}]}`},
+		{name: "wrapped result", body: `{"result":{"fields":[{"identifier":"priority"}]}}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/projex/organizations/org-123/projectTemplates/tmpl-1/fields", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "project-template", "fields", "--organization-id", "org-123", "--template-id", "tmpl-1", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
 func TestPackagesArtifactsListCallsYunxiaoAPI(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)

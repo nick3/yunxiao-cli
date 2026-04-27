@@ -107,6 +107,8 @@ func TestCommandsJSONIncludesPhase1Commands(t *testing.T) {
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-types relations"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-type fields"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem-type workflow"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex project-templates list"`)
+	require.Contains(t, stdout.String(), `"path": "yunxiao projex project-template fields"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comments list"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao projex workitem comment create"`)
 	require.Contains(t, stdout.String(), `"path": "yunxiao auth login"`)
@@ -160,6 +162,8 @@ func TestPhase1GapCommandHelpJSONIncludesRequiredFlags(t *testing.T) {
 		{name: "projex workitems list", args: []string{"projex", "workitems", "list"}, required: []string{"category"}, optional: []string{"organization-id", "project-id", "space-id", "mine", "unfinished", "status", "assigned-to", "finish-time-after", "update-status-at-after", "advanced-conditions", "order-by", "sort"}},
 		{name: "projex workitem create", args: []string{"projex", "workitem", "create"}, required: []string{"organization-id", "workitem-type-id", "subject", "assigned-to", "yes"}, optional: []string{"project-id", "space-id", "description", "description-file", "format-type", "labels", "parent-id", "participants", "sprint", "trackers", "verifier", "versions", "custom-field", "custom-fields-json"}},
 		{name: "projex workitem update", args: []string{"projex", "workitem", "update"}, required: []string{"organization-id", "workitem-id", "yes"}, optional: []string{"subject", "assigned-to", "description", "description-file", "format-type", "priority", "status", "labels", "participants", "sprint", "trackers", "verifier", "versions", "custom-field", "custom-fields-json"}},
+		{name: "projex project-templates list", args: []string{"projex", "project-templates", "list"}, required: []string{"organization-id"}},
+		{name: "projex project-template fields", args: []string{"projex", "project-template", "fields"}, required: []string{"organization-id", "template-id"}},
 		{name: "projex workitem-types list all", args: []string{"projex", "workitem-types", "list"}, required: []string{"organization-id"}, optional: []string{"all", "project-id", "category"}},
 		{name: "projex workitem-type get", args: []string{"projex", "workitem-type", "get"}, required: []string{"organization-id", "workitem-type-id"}},
 		{name: "projex workitem-types relations", args: []string{"projex", "workitem-types", "relations"}, required: []string{"organization-id", "workitem-type-id"}},

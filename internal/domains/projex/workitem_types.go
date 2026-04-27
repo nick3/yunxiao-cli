@@ -109,14 +109,18 @@ func unexpectedArrayOrResultResponse(resourceName string) *output.ErrorDetail {
 	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: expected array or object with result array"}
 }
 
-func decodeObjectOrResult(body json.RawMessage) (map[string]any, *output.ErrorDetail) {
+func decodeObjectOrResult(body json.RawMessage, resourceNames ...string) (map[string]any, *output.ErrorDetail) {
+	resourceName := "workitem metadata"
+	if len(resourceNames) > 0 && strings.TrimSpace(resourceNames[0]) != "" {
+		resourceName = resourceNames[0]
+	}
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, &output.ErrorDetail{Code: "EMPTY_RESPONSE", Category: "general", Retryable: false, Message: "upstream returned an empty response body"}
 	}
 	var data map[string]any
 	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, decodeWorkitemMetadataError(err)
+		return nil, decodeWorkitemResponseError(err, resourceName)
 	}
 	if errDetail := detectBusinessError(data); errDetail != nil {
 		return nil, errDetail
@@ -124,7 +128,7 @@ func decodeObjectOrResult(body json.RawMessage) (map[string]any, *output.ErrorDe
 	if result, ok := data["result"]; ok {
 		object, ok := result.(map[string]any)
 		if !ok || object == nil {
-			return nil, &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode workitem metadata response: result must be an object"}
+			return nil, &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: result must be an object"}
 		}
 		if errDetail := detectBusinessError(object); errDetail != nil {
 			return nil, errDetail
@@ -135,7 +139,7 @@ func decodeObjectOrResult(body json.RawMessage) (map[string]any, *output.ErrorDe
 }
 
 func decodeResourceObjectOrResult(body json.RawMessage, resourceName string, identityKeys ...string) (map[string]any, *output.ErrorDetail) {
-	data, errDetail := decodeObjectOrResult(body)
+	data, errDetail := decodeObjectOrResult(body, resourceName)
 	if errDetail != nil {
 		return nil, errDetail
 	}
@@ -146,7 +150,7 @@ func decodeResourceObjectOrResult(body json.RawMessage, resourceName string, ide
 }
 
 func decodeUpdateConfirmationOrResult(body json.RawMessage, resourceName string, identityKeys ...string) *output.ErrorDetail {
-	data, errDetail := decodeObjectOrResult(body)
+	data, errDetail := decodeObjectOrResult(body, resourceName)
 	if errDetail != nil {
 		return errDetail
 	}

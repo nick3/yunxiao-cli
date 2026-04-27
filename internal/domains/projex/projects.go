@@ -40,6 +40,23 @@ func GetProject(ctx context.Context, client *httpx.Client, organizationID, proje
 	return data, nil
 }
 
+func ListProjectTemplates(ctx context.Context, client *httpx.Client, organizationID string) ([]map[string]any, *output.ErrorDetail) {
+	var body json.RawMessage
+	if errDetail := shared.RequestJSON(ctx, client, http.MethodGet, projectTemplatesPath(client.BaseURL, organizationID), &body); errDetail != nil {
+		return nil, errDetail
+	}
+	return decodeArrayOrResult(body, "project templates")
+}
+
+func GetProjectTemplateFields(ctx context.Context, client *httpx.Client, organizationID, templateID string) (map[string]any, *output.ErrorDetail) {
+	var body json.RawMessage
+	path := projectTemplateFieldsPath(client.BaseURL, organizationID, templateID)
+	if errDetail := shared.RequestJSON(ctx, client, http.MethodGet, path, &body); errDetail != nil {
+		return nil, errDetail
+	}
+	return decodeObjectOrResult(body, "project template fields")
+}
+
 type ProjectListOptions struct {
 	Name               string
 	Status             string
@@ -261,6 +278,17 @@ func projectsPath(baseURL, organizationID string) string {
 		return "/oapi/v1/projex/projects"
 	}
 	return "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projects"
+}
+
+func projectTemplatesPath(baseURL, organizationID string) string {
+	if shared.IsRegionBaseURL(baseURL) {
+		return "/oapi/v1/projex/projectTemplates"
+	}
+	return "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projectTemplates"
+}
+
+func projectTemplateFieldsPath(baseURL, organizationID, templateID string) string {
+	return projectTemplatesPath(baseURL, organizationID) + "/" + url.PathEscape(templateID) + "/fields"
 }
 
 func workitemsPath(baseURL, organizationID string) string {
