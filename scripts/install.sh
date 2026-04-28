@@ -141,7 +141,7 @@ resolve_latest_version() {
     return
   fi
 
-  tmp="${TMPDIR:-/tmp}/yunxiao-latest.$$"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/yunxiao-latest.XXXXXX")" || fail 5 "failed to create temporary file"
   latest_url="$(join_url "$api_url" "repos/$repo/releases/latest")"
   download_file "$latest_url" "$tmp"
   latest="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp" | sed -n '1p')"
@@ -168,13 +168,14 @@ sha256_file() {
 checksum_for_asset() {
   checksums="$1"
   asset="$2"
-  awk -v name="$asset" '$2 == name { print $1; found=1; exit } END { if (!found) exit 1 }' "$checksums" || true
+  awk -v name="$asset" '$2 == name { print $1; exit }' "$checksums"
 }
 
 ensure_safe_target() {
   dir="$1"
 
   [ -n "$dir" ] || fail 7 "install directory is empty"
+  [ ! -L "$dir" ] || fail 7 "refusing to uninstall from symlink directory: $dir"
   if [ -d "$dir" ]; then
     physical_dir="$(cd "$dir" 2>/dev/null && pwd -P)" || fail 7 "failed to resolve install directory: $dir"
     [ "$physical_dir" != "/" ] || fail 7 "refusing to uninstall from root directory"
@@ -265,7 +266,7 @@ mkdir -p "$extract_dir"
 
 download_file "$archive_url" "$archive"
 download_file "$checksums_url" "$checksums"
-expected="$(checksum_for_asset "$checksums" "$asset")"
+expected="$(checksum_for_asset "$checksums" "$asset" || true)"
 [ -n "$expected" ] || fail 4 "missing checksum entry for $asset in $checksums_url"
 actual="$(sha256_file "$archive")"
 if [ "$actual" != "$expected" ]; then

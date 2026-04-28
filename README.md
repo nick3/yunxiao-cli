@@ -132,12 +132,19 @@ PowerShell 可写入当前用户 profile：
 - Windows amd64
 - Windows arm64
 
-下载对应平台的压缩包后解压，将 `yunxiao` 或 `yunxiao.exe` 放入 `PATH` 中即可：
+macOS / Linux 下载对应平台的 tar.gz 后解压，将 `yunxiao` 放入 `PATH` 中即可：
 
 ```bash
 tar -xzf yunxiao_<version>_<os>_<arch>.tar.gz
 chmod +x yunxiao
 mv yunxiao "$HOME/.local/bin/yunxiao"
+```
+
+Windows 下载对应平台的 zip 后解压，将 `yunxiao.exe` 放入 `PATH` 中即可：
+
+```powershell
+Expand-Archive .\yunxiao_<version>_windows_<arch>.zip -DestinationPath .
+Move-Item .\yunxiao.exe "$env:USERPROFILE\bin\yunxiao.exe" -Force
 ```
 
 然后验证：

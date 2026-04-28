@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -170,14 +172,32 @@ func TestPOSIXUnsupportedAndUnsafeTargets(t *testing.T) {
 	require.Contains(t, stderr, "refusing to uninstall from root directory")
 }
 
-func TestPowerShellInstallUninstallWithZipFixtureWhenAvailable(t *testing.T) {
+func TestPOSIXUninstallRefusesSymlinkDirectoryWhenAvailable(t *testing.T) {
+	root := repoRoot(t)
+	realDir := t.TempDir()
+	linkDir := filepath.Join(t.TempDir(), "bin-link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("directory symlink is not available: %v", err)
+	}
+	env := installerEnv(t, map[string]string{
+		"YUNXIAO_INSTALL_OS":   "linux",
+		"YUNXIAO_INSTALL_ARCH": "amd64",
+	})
+
+	stdout, stderr, code := runCommand(t, env, "sh", filepath.Join(root, "scripts", "install.sh"), "--bin-dir", linkDir, "--uninstall")
+	require.Equal(t, 7, code, "stdout=%s stderr=%s", stdout, stderr)
+	require.Contains(t, stderr, "refusing to uninstall from symlink directory")
+}
+
+func TestPowerShellInstallUpdateUninstallWithZipFixtureWhenAvailable(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("PowerShell install fixture requires Windows to execute yunxiao.exe")
 	}
 	pwsh := requirePowerShell(t)
 	root := repoRoot(t)
 	server := fixtureServer(t, "v1.2.3", map[string]releaseFixture{
-		"v1.2.3": newZipRelease(t, "v1.2.3", windowsFixtureBinary(t)),
+		"v1.2.3": newZipRelease(t, "v1.2.3", windowsFixtureBinaryWithMarker(t, "ps-fixture-v1")),
+		"v1.2.4": newZipRelease(t, "v1.2.4", windowsFixtureBinaryWithMarker(t, "ps-fixture-v2")),
 	})
 	binDir := filepath.Join(t.TempDir(), "bin")
 	env := installerEnv(t, map[string]string{
@@ -194,9 +214,56 @@ func TestPowerShellInstallUninstallWithZipFixtureWhenAvailable(t *testing.T) {
 	require.FileExists(t, target)
 	require.Contains(t, readFile(t, target), "ps-fixture-v1")
 
+	stdout, stderr, code = runCommand(t, env, pwsh, "-NoProfile", "-File", filepath.Join(root, "scripts", "install.ps1"), "-Version", "v1.2.4", "-BinDir", binDir)
+	require.Equal(t, 0, code, "stdout=%s stderr=%s", stdout, stderr)
+	require.Contains(t, readFile(t, target), "ps-fixture-v2")
+
 	stdout, stderr, code = runCommand(t, env, pwsh, "-NoProfile", "-File", filepath.Join(root, "scripts", "install.ps1"), "-BinDir", binDir, "-Uninstall")
 	require.Equal(t, 0, code, "stdout=%s stderr=%s", stdout, stderr)
 	require.NoFileExists(t, target)
+}
+
+func TestPowerShellChecksumMismatchDoesNotOverwriteWhenAvailable(t *testing.T) {
+	pwsh := requirePowerShell(t)
+	root := repoRoot(t)
+	fixture := newZipRelease(t, "v1.2.3", []byte("new-content"))
+	fixture.checksum = strings.Repeat("0", 64)
+	server := fixtureServer(t, "v1.2.3", map[string]releaseFixture{"v1.2.3": fixture})
+	binDir := filepath.Join(t.TempDir(), "bin")
+	target := filepath.Join(binDir, "yunxiao.exe")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	require.NoError(t, os.WriteFile(target, []byte("old-content"), 0o755))
+	env := installerEnv(t, map[string]string{
+		"USERPROFILE":                       t.TempDir(),
+		"YUNXIAO_INSTALL_OS":                "windows",
+		"YUNXIAO_INSTALL_ARCH":              "amd64",
+		"YUNXIAO_INSTALL_DOWNLOAD_BASE_URL": server.URL,
+	})
+
+	stdout, stderr, code := runCommand(t, env, pwsh, "-NoProfile", "-File", filepath.Join(root, "scripts", "install.ps1"), "-Version", "v1.2.3", "-BinDir", binDir)
+	require.Equal(t, 4, code, "stdout=%s stderr=%s", stdout, stderr)
+	require.Contains(t, stderr, "checksum mismatch")
+	require.Equal(t, "old-content", readFile(t, target))
+}
+
+func TestPowerShellArchiveMissingBinaryFailsBeforeInstallWhenAvailable(t *testing.T) {
+	pwsh := requirePowerShell(t)
+	root := repoRoot(t)
+	server := fixtureServer(t, "v1.2.3", map[string]releaseFixture{
+		"v1.2.3": newZipReleaseWithEntries(t, "v1.2.3", map[string][]byte{"not-yunxiao.exe": []byte("wrong")}),
+	})
+	binDir := filepath.Join(t.TempDir(), "bin")
+	env := installerEnv(t, map[string]string{
+		"USERPROFILE":                       t.TempDir(),
+		"YUNXIAO_INSTALL_OS":                "windows",
+		"YUNXIAO_INSTALL_ARCH":              "amd64",
+		"YUNXIAO_INSTALL_DOWNLOAD_BASE_URL": server.URL,
+	})
+
+	stdout, stderr, code := runCommand(t, env, pwsh, "-NoProfile", "-File", filepath.Join(root, "scripts", "install.ps1"), "-Version", "v1.2.3", "-BinDir", binDir)
+	require.Equal(t, 1, code, "stdout=%s stderr=%s", stdout, stderr)
+	require.Contains(t, stderr, "archive does not contain expected yunxiao.exe binary")
+	require.NoFileExists(t, filepath.Join(binDir, "yunxiao.exe"))
 }
 
 func TestPowerShellVerificationFailureDoesNotOverwriteWhenAvailable(t *testing.T) {
@@ -318,8 +385,13 @@ func newTarReleaseWithEntries(t *testing.T, version string, entries map[string]s
 
 func newZipRelease(t *testing.T, version string, binary []byte) releaseFixture {
 	t.Helper()
+	return newZipReleaseWithEntries(t, version, map[string][]byte{"yunxiao.exe": binary})
+}
+
+func newZipReleaseWithEntries(t *testing.T, version string, entries map[string][]byte) releaseFixture {
+	t.Helper()
 	asset := fmt.Sprintf("yunxiao_%s_windows_amd64.zip", version)
-	archive := buildZip(t, map[string][]byte{"yunxiao.exe": binary})
+	archive := buildZip(t, entries)
 	return releaseFixture{asset: asset, archive: archive, checksum: checksumHex(archive)}
 }
 
@@ -361,12 +433,17 @@ func fixtureFailingVerifyBinary(marker string) string {
 	return fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"commands\" ] && [ \"$2\" = \"--json\" ]; then\n  printf 'verify failed\\n' >&2\n  exit 42\nfi\nprintf '%%s\\n' %q\n", marker)
 }
 
-func windowsFixtureBinary(t *testing.T) []byte {
+func windowsFixtureBinaryWithMarker(t *testing.T, marker string) []byte {
 	t.Helper()
-	return windowsFixtureBinaryWithVerifyExit(t, 0)
+	return windowsFixtureBinaryWithMarkerAndVerifyExit(t, marker, 0)
 }
 
 func windowsFixtureBinaryWithVerifyExit(t *testing.T, verifyExitCode int) []byte {
+	t.Helper()
+	return windowsFixtureBinaryWithMarkerAndVerifyExit(t, "ps-fixture-v1", verifyExitCode)
+}
+
+func windowsFixtureBinaryWithMarkerAndVerifyExit(t *testing.T, marker string, verifyExitCode int) []byte {
 	t.Helper()
 	sourceDir := t.TempDir()
 	source := fmt.Sprintf(`package main
@@ -381,12 +458,15 @@ func main() {
 		fmt.Println(%q)
 		os.Exit(%d)
 	}
-	fmt.Println("ps-fixture-v1")
+	fmt.Println(%q)
 }
-`, `{"version":"v1","data":[],"meta":{},"error":null}`, verifyExitCode)
+`, `{"version":"v1","data":[],"meta":{},"error":null}`, verifyExitCode, marker)
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "main.go"), []byte(source), 0o644))
 	binaryPath := filepath.Join(sourceDir, "yunxiao.exe")
-	cmd := exec.Command("go", "build", "-o", binaryPath, filepath.Join(sourceDir, "main.go"))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", binaryPath, filepath.Join(sourceDir, "main.go"))
+	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = sourceDir
 	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
