@@ -83,10 +83,6 @@ func decodeArrayOrResult(body json.RawMessage, resourceName string) ([]map[strin
 		}
 		return data, nil
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, decodeWorkitemResponseError(err, resourceName)
-	}
 	var envelope map[string]any
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, decodeWorkitemResponseError(err, resourceName)
@@ -94,12 +90,16 @@ func decodeArrayOrResult(body json.RawMessage, resourceName string) ([]map[strin
 	if errDetail := detectBusinessError(envelope); errDetail != nil {
 		return nil, errDetail
 	}
-	result, ok := raw["result"]
+	result, ok := envelope["result"]
 	if !ok {
 		return nil, unexpectedArrayOrResultResponse(resourceName)
 	}
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		return nil, unexpectedArrayOrResultResponse(resourceName)
+	}
 	var data []map[string]any
-	if err := json.Unmarshal(result, &data); err != nil || data == nil {
+	if err := json.Unmarshal(resultBytes, &data); err != nil || data == nil {
 		return nil, unexpectedArrayOrResultResponse(resourceName)
 	}
 	return data, nil
@@ -107,6 +107,57 @@ func decodeArrayOrResult(body json.RawMessage, resourceName string) ([]map[strin
 
 func unexpectedArrayOrResultResponse(resourceName string) *output.ErrorDetail {
 	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: expected array or object with result array"}
+}
+
+func decodeObjectArrayOrResult(body json.RawMessage, resourceName string) (any, *output.ErrorDetail) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return nil, &output.ErrorDetail{Code: "EMPTY_RESPONSE", Category: "general", Retryable: false, Message: "upstream returned an empty response body"}
+	}
+	if bytes.Equal(body, []byte("null")) {
+		return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+	}
+	if body[0] == '[' {
+		var data []map[string]any
+		if err := json.Unmarshal(body, &data); err != nil || data == nil {
+			return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+		}
+		return data, nil
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+	}
+	if errDetail := detectBusinessError(envelope); errDetail != nil {
+		return nil, errDetail
+	}
+	result, ok := envelope["result"]
+	if !ok {
+		return envelope, nil
+	}
+	resultBytes, err := json.Marshal(result)
+	if err != nil || len(resultBytes) == 0 || bytes.Equal(resultBytes, []byte("null")) {
+		return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+	}
+	if resultBytes[0] == '[' {
+		var data []map[string]any
+		if err := json.Unmarshal(resultBytes, &data); err != nil || data == nil {
+			return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+		}
+		return data, nil
+	}
+	var data map[string]any
+	if err := json.Unmarshal(resultBytes, &data); err != nil || data == nil {
+		return nil, unexpectedObjectArrayOrResultResponse(resourceName)
+	}
+	if errDetail := detectBusinessError(data); errDetail != nil {
+		return nil, errDetail
+	}
+	return data, nil
+}
+
+func unexpectedObjectArrayOrResultResponse(resourceName string) *output.ErrorDetail {
+	return &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: expected object, array, or object with result object or array"}
 }
 
 func decodeObjectOrResult(body json.RawMessage, resourceNames ...string) (map[string]any, *output.ErrorDetail) {

@@ -61,6 +61,8 @@ Grammar rules:
 - Action verbs: `list` / `get` / `create` / `update` / `delete` / `run` / `archive` (no synonyms)
 - Metadata/subresource reads may use a singular resource followed by a noun subresource, such as `project-template fields`, `workitem-type fields`, and `workitem-type workflow`.
 - Projex safe write testing uses a private project lifecycle: discover templates, create a clearly named private test project, write only inside it, and archive it for cleanup. Hard delete remains outside the Agent smoke-test path.
+- `project-template fields` preserves upstream field shape: top-level array/object and `result` array/object are valid success data shapes.
+- `project archive` treats 2xx empty response bodies as successful archive confirmations and emits normalized `{project_id, archived:true}` data.
 - No abbreviation aliases in v1
 - Mismatched singular/plural returns a suggestion: "did you mean 'repos list'?"
 

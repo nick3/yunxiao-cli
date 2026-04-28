@@ -301,16 +301,35 @@ func TestProjexProjectTemplatesListDecodesArrayAndWrappedArray(t *testing.T) {
 	}
 }
 
-func TestProjexProjectTemplateFieldsDecodesObjectAndWrappedObject(t *testing.T) {
+func TestProjexProjectTemplateFieldsDecodesAllowedShapes(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
 
 	tests := []struct {
 		name string
 		body string
+		want string
 	}{
-		{name: "object", body: `{"fields":[{"identifier":"priority"}]}`},
-		{name: "wrapped result", body: `{"result":{"fields":[{"identifier":"priority"}]}}`},
+		{
+			name: "array",
+			body: `[{"identifier":"priority"}]`,
+			want: `{"version":"v1","data":[{"identifier":"priority"}],"meta":{},"error":null}`,
+		},
+		{
+			name: "object",
+			body: `{"fields":[{"identifier":"priority"}]}`,
+			want: `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`,
+		},
+		{
+			name: "wrapped result array",
+			body: `{"result":[{"identifier":"priority"}]}`,
+			want: `{"version":"v1","data":[{"identifier":"priority"}],"meta":{},"error":null}`,
+		},
+		{
+			name: "wrapped result object",
+			body: `{"result":{"fields":[{"identifier":"priority"}]}}`,
+			want: `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -331,7 +350,7 @@ func TestProjexProjectTemplateFieldsDecodesObjectAndWrappedObject(t *testing.T) 
 
 			err := cmd.Run()
 			require.NoError(t, err)
-			require.JSONEq(t, `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`, stdout.String())
+			require.JSONEq(t, tc.want, stdout.String())
 			require.Empty(t, stderr.String())
 		})
 	}
@@ -361,7 +380,7 @@ func TestProjexProjectTemplateFieldsRejectsNullResponse(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 1, exitErr.ExitCode())
 	require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
-	require.Contains(t, stdout.String(), "expected object")
+	require.Contains(t, stdout.String(), "expected object, array")
 	require.Contains(t, stderr.String(), "project template fields lookup failed")
 }
 
@@ -688,6 +707,30 @@ func TestProjexProjectArchivePostsArchivedAndAcceptsSuccessConfirmation(t *testi
 	defer server.Close()
 
 	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--operator-id", "operator-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"project_id":"proj-1","archived":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectArchiveAcceptsEmptySuccessResponse(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--yes", "--json")
 	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
 
 	var stdout, stderr bytes.Buffer

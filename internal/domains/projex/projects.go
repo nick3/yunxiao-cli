@@ -48,13 +48,13 @@ func ListProjectTemplates(ctx context.Context, client *httpx.Client, organizatio
 	return decodeArrayOrResult(body, "project templates")
 }
 
-func GetProjectTemplateFields(ctx context.Context, client *httpx.Client, organizationID, templateID string) (map[string]any, *output.ErrorDetail) {
+func GetProjectTemplateFields(ctx context.Context, client *httpx.Client, organizationID, templateID string) (any, *output.ErrorDetail) {
 	var body json.RawMessage
 	path := projectTemplateFieldsPath(client.BaseURL, organizationID, templateID)
 	if errDetail := shared.RequestJSON(ctx, client, http.MethodGet, path, &body); errDetail != nil {
 		return nil, errDetail
 	}
-	return decodeObjectOrResult(body, "project template fields")
+	return decodeObjectArrayOrResult(body, "project template fields")
 }
 
 func CreateProject(ctx context.Context, client *httpx.Client, organizationID string, input ProjectCreateInput) (map[string]any, *output.ErrorDetail) {
@@ -88,6 +88,9 @@ func ArchiveProject(ctx context.Context, client *httpx.Client, organizationID, p
 	path := projectsPath(client.BaseURL, organizationID) + "/" + url.PathEscape(projectID) + "/archived"
 	var body json.RawMessage
 	if errDetail := shared.RequestJSONWithBody(ctx, client, http.MethodPost, path, payload, &body); errDetail != nil {
+		if errDetail.Code == "EMPTY_RESPONSE" {
+			return &ProjectArchiveResult{ProjectID: projectID, Archived: true}, nil
+		}
 		return nil, errDetail
 	}
 	if errDetail := decodeUpdateConfirmationOrResult(body, "project archive", "id", "identifier", "projectId"); errDetail != nil {
