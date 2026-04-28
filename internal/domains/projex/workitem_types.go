@@ -122,6 +122,9 @@ func decodeObjectOrResult(body json.RawMessage, resourceNames ...string) (map[st
 	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, decodeWorkitemResponseError(err, resourceName)
 	}
+	if data == nil {
+		return nil, &output.ErrorDetail{Code: "RESPONSE_DECODE_FAILED", Category: "general", Retryable: false, Message: "failed to decode " + resourceName + " response: expected object"}
+	}
 	if errDetail := detectBusinessError(data); errDetail != nil {
 		return nil, errDetail
 	}

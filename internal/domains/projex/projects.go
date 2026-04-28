@@ -58,7 +58,7 @@ func GetProjectTemplateFields(ctx context.Context, client *httpx.Client, organiz
 }
 
 func CreateProject(ctx context.Context, client *httpx.Client, organizationID string, input ProjectCreateInput) (map[string]any, *output.ErrorDetail) {
-	path := "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projects"
+	path := projectsPath(client.BaseURL, organizationID)
 	payload := map[string]any{
 		"name":       input.Name,
 		"customCode": input.CustomCode,
@@ -85,7 +85,7 @@ func ArchiveProject(ctx context.Context, client *httpx.Client, organizationID, p
 		payload = map[string]any{"operatorId": operatorID}
 	}
 
-	path := "/oapi/v1/projex/organizations/" + url.PathEscape(organizationID) + "/projects/" + url.PathEscape(projectID) + "/archived"
+	path := projectsPath(client.BaseURL, organizationID) + "/" + url.PathEscape(projectID) + "/archived"
 	var body json.RawMessage
 	if errDetail := shared.RequestJSONWithBody(ctx, client, http.MethodPost, path, payload, &body); errDetail != nil {
 		return nil, errDetail

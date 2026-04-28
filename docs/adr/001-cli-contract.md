@@ -58,7 +58,8 @@ yunxiao raw request --method GET --path /oapi/...
 Grammar rules:
 - Collection operations use plural resource names: `repos list`, `pipelines list`
 - Singular operations use singular resource names: `repo get`, `pipeline get`
-- Action verbs: `list` / `get` / `create` / `update` / `delete` / `run` (no synonyms)
+- Action verbs: `list` / `get` / `create` / `update` / `delete` / `run` / `archive` (no synonyms)
+- Metadata/subresource reads may use a singular resource followed by a noun subresource, such as `project-template fields`, `workitem-type fields`, and `workitem-type workflow`.
 - Projex safe write testing uses a private project lifecycle: discover templates, create a clearly named private test project, write only inside it, and archive it for cleanup. Hard delete remains outside the Agent smoke-test path.
 - No abbreviation aliases in v1
 - Mismatched singular/plural returns a suggestion: "did you mean 'repos list'?"
