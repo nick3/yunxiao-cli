@@ -26,6 +26,10 @@ yunxiao projex projects list --organization-id <id>
 yunxiao projex projects list --mine
 # In central edition, projects list may omit --organization-id when org current returns lastOrganizationId.
 yunxiao projex project get --organization-id <id> --project-id <id>
+yunxiao projex project-templates list --organization-id <id>
+yunxiao projex project-template fields --organization-id <id> --template-id <id>
+yunxiao projex project create --organization-id <id> --name <name> --custom-code <CODE> --template-id <id> --scope private --yes
+yunxiao projex project archive --organization-id <id> --project-id <id> --yes
 yunxiao projex workitems list --organization-id <id> --category <category> --project-id <id>
 yunxiao projex workitems list --mine --category <category>
 yunxiao projex workitems list --mine --unfinished --category <category>
@@ -54,7 +58,11 @@ yunxiao raw request --method GET --path /oapi/...
 Grammar rules:
 - Collection operations use plural resource names: `repos list`, `pipelines list`
 - Singular operations use singular resource names: `repo get`, `pipeline get`
-- Action verbs: `list` / `get` / `create` / `update` / `delete` / `run` (no synonyms)
+- Action verbs: `list` / `get` / `create` / `update` / `delete` / `run` / `archive` (no synonyms)
+- Metadata/subresource reads may use a singular resource followed by a noun subresource, such as `project-template fields`, `workitem-type fields`, and `workitem-type workflow`.
+- Projex safe write testing uses a private project lifecycle: discover templates, create a clearly named private test project, write only inside it, and archive it for cleanup. Hard delete remains outside the Agent smoke-test path.
+- `project-template fields` preserves upstream field shape: top-level array/object and `result` array/object are valid success data shapes.
+- `project archive` treats 2xx empty response bodies as successful archive confirmations and emits normalized `{project_id, archived:true}` data.
 - No abbreviation aliases in v1
 - Mismatched singular/plural returns a suggestion: "did you mean 'repos list'?"
 

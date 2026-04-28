@@ -265,6 +265,565 @@ func TestProjexProjectGetCallsYunxiaoAPI(t *testing.T) {
 	require.Empty(t, stderr.String())
 }
 
+func TestProjexProjectTemplatesListDecodesArrayAndWrappedArray(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "array", body: `[{"id":"tmpl-1","name":"Basic"}]`},
+		{name: "wrapped result", body: `{"result":[{"id":"tmpl-1","name":"Basic"}]}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/projex/organizations/org-123/projectTemplates", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "project-templates", "list", "--organization-id", "org-123", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":"v1","data":[{"id":"tmpl-1","name":"Basic"}],"meta":{},"error":null}`, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexProjectTemplateFieldsDecodesAllowedShapes(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "array",
+			body: `[{"identifier":"priority"}]`,
+			want: `{"version":"v1","data":[{"identifier":"priority"}],"meta":{},"error":null}`,
+		},
+		{
+			name: "object",
+			body: `{"fields":[{"identifier":"priority"}]}`,
+			want: `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`,
+		},
+		{
+			name: "wrapped result array",
+			body: `{"result":[{"identifier":"priority"}]}`,
+			want: `{"version":"v1","data":[{"identifier":"priority"}],"meta":{},"error":null}`,
+		},
+		{
+			name: "wrapped result object",
+			body: `{"result":{"fields":[{"identifier":"priority"}]}}`,
+			want: `{"version":"v1","data":{"fields":[{"identifier":"priority"}]},"meta":{},"error":null}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "/oapi/v1/projex/organizations/org-123/projectTemplates/tmpl-1/fields", r.URL.Path)
+				fmt.Fprint(w, tc.body)
+			}))
+			defer server.Close()
+
+			cmd := exec.Command(binary, "projex", "project-template", "fields", "--organization-id", "org-123", "--template-id", "tmpl-1", "--json")
+			cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			require.NoError(t, err)
+			require.JSONEq(t, tc.want, stdout.String())
+			require.Empty(t, stderr.String())
+		})
+	}
+}
+
+func TestProjexProjectTemplateFieldsRejectsNullResponse(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projectTemplates/tmpl-1/fields", r.URL.Path)
+		fmt.Fprint(w, `null`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project-template", "fields", "--organization-id", "org-123", "--template-id", "tmpl-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 1, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+	require.Contains(t, stdout.String(), "expected object, array")
+	require.Contains(t, stderr.String(), "project template fields lookup failed")
+}
+
+func TestProjexProjectCreateSendsExpectedPayloadAndDecodesID(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	descriptionFile := filepath.Join(t.TempDir(), "description.txt")
+	require.NoError(t, os.WriteFile(descriptionFile, []byte("Created by yunxiao-cli smoke test"), 0o600))
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects", r.URL.Path)
+
+		var payload map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.Equal(t, "yunxiao-cli-test-20260427", payload["name"])
+		require.Equal(t, "YXTST", payload["customCode"])
+		require.Equal(t, "private", payload["scope"])
+		require.Equal(t, "tmpl-1", payload["templateId"])
+		require.Equal(t, "Created by yunxiao-cli smoke test", payload["description"])
+
+		customFields, ok := payload["customFieldValues"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "qa", customFields["owner"])
+		require.Equal(t, "low", customFields["risk"])
+
+		fmt.Fprint(w, `{"result":{"id":"proj-1","name":"yunxiao-cli-test-20260427"}}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create",
+		"--organization-id", "org-123",
+		"--name", "yunxiao-cli-test-20260427",
+		"--custom-code", "YXTST",
+		"--template-id", "tmpl-1",
+		"--scope", "private",
+		"--description-file", descriptionFile,
+		"--custom-field", "owner=qa",
+		"--custom-fields-json", `{"risk":"low"}`,
+		"--yes",
+		"--json",
+	)
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"proj-1","name":"yunxiao-cli-test-20260427"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectCreateUsesRegionPath(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/projects", r.URL.Path)
+		fmt.Fprint(w, `{"id":"proj-1","name":"test"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"id":"proj-1","name":"test"},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectCreateRejectsMissingYesBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "yes is required")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsInvalidCustomCodeBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "test", "--template-id", "tmpl-1", "--scope", "private", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "custom_code")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsInvalidScopeBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "team", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "scope")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsDuplicateCustomFieldKeysBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--custom-field", "owner=qa", "--custom-fields-json", `{"owner":"dev"}`, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "duplicates key owner")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsDescriptionAndDescriptionFileBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	descriptionFile := filepath.Join(t.TempDir(), "description.txt")
+	require.NoError(t, os.WriteFile(descriptionFile, []byte("description"), 0o600))
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--description", "inline", "--description-file", descriptionFile, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "description and description_file cannot be used together")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsUnreadableDescriptionFileBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	missingFile := filepath.Join(t.TempDir(), "missing.txt")
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--description-file", missingFile, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 1, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "FILE_READ_FAILED"`)
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateRejectsInvalidCustomFieldsJSONBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--custom-fields-json", `["bad"]`, "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_INVALID"`)
+	require.Contains(t, stdout.String(), "custom_fields_json must be a JSON object")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectCreateSurfacesBusinessErrors(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects", r.URL.Path)
+		fmt.Fprint(w, `{"success":false,"errorMessage":"custom code already exists"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "create", "--organization-id", "org-123", "--name", "test", "--custom-code", "TEST", "--template-id", "tmpl-1", "--scope", "private", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 7, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"category": "upstream"`)
+	require.Contains(t, stdout.String(), "custom code already exists")
+	require.Contains(t, stderr.String(), "project create failed")
+}
+
+func TestProjexProjectArchivePostsArchivedAndAcceptsSuccessConfirmation(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"operatorId":"operator-1"`)
+		fmt.Fprint(w, `{"success":true,"requestId":"req-1"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--operator-id", "operator-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"project_id":"proj-1","archived":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectArchiveAcceptsEmptySuccessResponse(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"project_id":"proj-1","archived":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectArchiveUsesRegionPath(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/projects/proj-1/archived", r.URL.Path)
+		fmt.Fprint(w, `{"success":true}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"version":"v1","data":{"project_id":"proj-1","archived":true},"meta":{},"error":null}`, stdout.String())
+	require.Empty(t, stderr.String())
+}
+
+func TestProjexProjectArchiveRejectsMissingYesBeforeAuth(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--json")
+	cmd.Env = testEnv("YUNXIAO_API_BASE_URL=" + server.URL)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 2, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "PARAM_REQUIRED"`)
+	require.Contains(t, stdout.String(), "yes is required")
+	require.NotContains(t, stdout.String(), `"code": "AUTH_FAILED"`)
+	require.Empty(t, stderr.String())
+	require.Equal(t, 0, requests)
+}
+
+func TestProjexProjectArchiveRejectsAmbiguousSuccessResponses(t *testing.T) {
+	root := filepath.Join("..", "..")
+	binary := buildTestBinary(t, root)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/oapi/v1/projex/organizations/org-123/projects/proj-1/archived", r.URL.Path)
+		fmt.Fprint(w, `{"success":true,"unexpected":"value"}`)
+	}))
+	defer server.Close()
+
+	cmd := exec.Command(binary, "projex", "project", "archive", "--organization-id", "org-123", "--project-id", "proj-1", "--yes", "--json")
+	cmd.Env = testEnv("YUNXIAO_ACCESS_TOKEN=valid-token", "YUNXIAO_API_BASE_URL="+strings.Replace(server.URL, "http://", "http://openapi-rdc.aliyuncs.com@", 1))
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	require.Error(t, err)
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok)
+	require.Equal(t, 1, exitErr.ExitCode())
+	require.Contains(t, stdout.String(), `"code": "RESPONSE_DECODE_FAILED"`)
+	require.Contains(t, stdout.String(), "explicit success confirmation")
+	require.Contains(t, stderr.String(), "project archive failed")
+}
+
 func TestPackagesArtifactsListCallsYunxiaoAPI(t *testing.T) {
 	root := filepath.Join("..", "..")
 	binary := buildTestBinary(t, root)
