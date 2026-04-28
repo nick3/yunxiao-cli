@@ -24,7 +24,34 @@ jobs:
         run: test -z "$(gofmt -l cmd internal test)"
       - name: Run vet
         run: go vet ./...
+      - name: Check installer shell syntax
+        run: sh -n scripts/install.sh
+      - name: Check installer PowerShell syntax
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -Command "[scriptblock]::Create((Get-Content -Raw scripts/install.ps1)) | Out-Null"
+          else
+            echo "pwsh is not available; skipping PowerShell parse check"
+          fi
       - name: Run tests
         run: go test ./...
+      - name: Run installer fixture tests
+        run: go test ./test/installer -count=1
       - name: Build binary
         run: go build -o yunxiao ./cmd/yunxiao
+
+  installer-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check installer PowerShell syntax
+        shell: pwsh
+        run: '[scriptblock]::Create((Get-Content -Raw scripts/install.ps1)) | Out-Null'
+      - name: Run installer fixture tests
+        run: go test ./test/installer -count=1

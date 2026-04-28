@@ -17,7 +17,111 @@ Yunxiao CLI 是一个面向 AI Agent 和自动化脚本的阿里云云效（Yunx
 
 ## 安装方法
 
-### 从 Release 下载
+### macOS / Linux 一条命令安装
+
+默认安装到用户可写目录 `$HOME/.local/bin`，不需要 root：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.sh | sh
+```
+
+指定 stable 版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.sh | sh -s -- --version v0.1.0
+```
+
+指定安装目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.sh | sh -s -- --bin-dir "$HOME/.local/bin"
+```
+
+查看将要安装什么但不写入文件：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.sh | sh -s -- --dry-run
+```
+
+重新运行安装命令会在校验 checksum 后覆盖目标二进制，因此可用于更新。显式指定更旧版本会有意降级。
+
+卸载只删除所选安装目录下的 `yunxiao` 二进制：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.sh | sh -s -- --uninstall
+```
+
+### Windows PowerShell 一条命令安装
+
+默认安装到用户可写目录 `$env:USERPROFILE\bin`：
+
+```powershell
+iwr https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.ps1 -UseB | iex
+```
+
+指定 stable 版本和安装目录：
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.ps1 -UseB))) -Version v0.1.0 -BinDir "$env:USERPROFILE\bin"
+```
+
+查看将要安装什么但不写入文件：
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.ps1 -UseB))) -DryRun
+```
+
+重新运行安装命令会在校验 checksum 后覆盖目标二进制，因此可用于更新。显式指定更旧版本会有意降级。
+
+卸载只删除所选安装目录下的 `yunxiao.exe` 二进制：
+
+```powershell
+& ([scriptblock]::Create((iwr https://raw.githubusercontent.com/nick3/yunxiao-cli/main/scripts/install.ps1 -UseB))) -Uninstall
+```
+
+### 安装目录和 PATH
+
+安装目录优先级为：命令行参数、`YUNXIAO_INSTALL_DIR`、平台默认值。
+
+如果安装后提示目录不在 `PATH` 中，可以按 shell 类型添加：
+
+```bash
+# zsh: ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+
+# bash: ~/.bashrc 或 ~/.bash_profile
+export PATH="$HOME/.local/bin:$PATH"
+
+# fish: ~/.config/fish/config.fish
+fish_add_path "$HOME/.local/bin"
+```
+
+PowerShell 可写入当前用户 profile：
+
+```powershell
+'$env:Path = "$env:USERPROFILE\bin;" + $env:Path' | Add-Content $PROFILE
+```
+
+### 安全模型和故障排查
+
+安装脚本只支持 stable tag releases，不安装 preview release。脚本会下载匹配平台的 archive 和同一 release 下的 `checksums.txt`，先校验 SHA-256，再解压和覆盖目标二进制。阶段一信任 HTTPS、GitHub Release assets 和同 release 的 `checksums.txt`，尚未提供 Sigstore/cosign provenance 或独立签名验证。
+
+卸载不会删除 `~/.yunxiao/config.yaml`、`YUNXIAO_ACCESS_TOKEN`、shell profile、PATH 配置、日志、缓存或任何云效远程数据；也不会扫描 PATH 删除第一个同名命令。目标二进制不存在时，卸载会成功退出并提示已经未安装。
+
+常见失败：
+
+| Exit code | 含义 |
+|---:|---|
+| 0 | 成功 |
+| 1 | 通用失败 |
+| 2 | 不支持的 OS 或架构 |
+| 3 | 下载或 release 查询失败 |
+| 4 | checksum 缺失或不匹配 |
+| 5 | 安装目录不可写 |
+| 6 | 安装后 `yunxiao commands --json` 验证失败 |
+| 7 | 卸载目标不安全或无效 |
+
+### 从 Release 手动下载
 
 项目配置了 GoReleaser，发布 tag 形如 `v*` 时会构建以下平台产物：
 
@@ -25,13 +129,22 @@ Yunxiao CLI 是一个面向 AI Agent 和自动化脚本的阿里云云效（Yunx
 - Linux arm64
 - macOS amd64
 - macOS arm64
+- Windows amd64
+- Windows arm64
 
-下载对应平台的压缩包后解压，将 `yunxiao` 放入 `PATH` 中即可：
+macOS / Linux 下载对应平台的 tar.gz 后解压，将 `yunxiao` 放入 `PATH` 中即可：
 
 ```bash
 tar -xzf yunxiao_<version>_<os>_<arch>.tar.gz
 chmod +x yunxiao
-mv yunxiao /usr/local/bin/yunxiao
+mv yunxiao "$HOME/.local/bin/yunxiao"
+```
+
+Windows 下载对应平台的 zip 后解压，将 `yunxiao.exe` 放入 `PATH` 中即可：
+
+```powershell
+Expand-Archive .\yunxiao_<version>_windows_<arch>.zip -DestinationPath .
+Move-Item .\yunxiao.exe "$env:USERPROFILE\bin\yunxiao.exe" -Force
 ```
 
 然后验证：
@@ -399,17 +512,21 @@ test -z "$(gofmt -l cmd internal test)" && \
 
 ## CI 与发布
 
-项目包含两个 GitHub Actions workflow：
+项目包含三个 GitHub Actions workflow：
 
 - `.github/workflows/ci.yml`
   - 在 pull request 和 `main` 分支 push 时运行。
-  - 执行 gofmt 检查、`go vet ./...`、`go test ./...` 和 `go build`。
+  - 执行 gofmt 检查、installer 语法和 fixture 测试、`go vet ./...`、`go test ./...` 和 `go build`。
 
 - `.github/workflows/release.yml`
   - 在推送 `v*` tag 时运行。
-  - 执行 `go vet ./...`、`go test ./...`，然后使用 GoReleaser 发布。
+  - 执行 `go vet ./...`、`go test ./...`，然后使用 stable GoReleaser 配置发布。
 
-GoReleaser 配置位于 `.goreleaser.yaml`，当前构建 Linux/macOS 的 amd64/arm64 tar.gz 包，并生成 `checksums.txt`。
+- `.github/workflows/preview-release.yml`
+  - 在 `main` 分支 push 时运行。
+  - 使用 `.goreleaser.preview.yaml` 构建 preview artifacts，并发布 prerelease。
+
+Stable GoReleaser 配置位于 `.goreleaser.yaml`，构建 Linux/macOS 的 amd64/arm64 tar.gz 包、Windows 的 amd64/arm64 zip 包，并生成 `checksums.txt`。Preview 发布使用 `.goreleaser.preview.yaml`，保留 `preview.<run_number>` asset 命名，不作为 installer 公共契约。
 
 ## AI Agent 使用建议
 
