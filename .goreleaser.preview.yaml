@@ -31,11 +31,14 @@ archives:
         formats:
           - zip
     name_template: >-
-      {{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}
+      {{ .ProjectName }}_preview.{{ .Env.PREVIEW_ASSET_VERSION }}_{{ .Os }}_{{ .Arch }}
     wrap_in_directory: false
 
 checksum:
   name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Env.PREVIEW_VERSION }}"
 
 changelog:
   use: git
