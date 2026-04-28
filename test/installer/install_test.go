@@ -144,11 +144,11 @@ func TestPOSIXDryRunMappingAndDirectoryPriority(t *testing.T) {
 	require.Contains(t, stdout, "arch=arm64")
 	require.Contains(t, stdout, "asset=yunxiao_v9.9.9_linux_arm64.tar.gz")
 	require.Contains(t, stdout, "archive_url=https://downloads.example.test/mirror/yunxiao-cli/releases/download/v9.9.9/yunxiao_v9.9.9_linux_arm64.tar.gz")
-	require.Contains(t, stdout, "target="+filepath.ToSlash(filepath.Join(flagDir, "yunxiao")))
+	require.Contains(t, normalizeSlashes(stdout), "target="+filepath.ToSlash(filepath.Join(flagDir, "yunxiao")))
 
 	stdout, stderr, code = runCommand(t, env, "sh", filepath.Join(root, "scripts", "install.sh"), "--version", "v9.9.9", "--dry-run")
 	require.Equal(t, 0, code, "stdout=%s stderr=%s", stdout, stderr)
-	require.Contains(t, stdout, "target="+filepath.ToSlash(filepath.Join(envDir, "yunxiao")))
+	require.Contains(t, normalizeSlashes(stdout), "target="+filepath.ToSlash(filepath.Join(envDir, "yunxiao")))
 }
 
 func TestPOSIXUnsupportedAndUnsafeTargets(t *testing.T) {
@@ -267,6 +267,10 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
+func normalizeSlashes(value string) string {
+	return strings.ReplaceAll(value, "\\", "/")
+}
+
 func fixtureServer(t *testing.T, latest string, releases map[string]releaseFixture) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +386,7 @@ func main() {
 `, `{"version":"v1","data":[],"meta":{},"error":null}`, verifyExitCode)
 	require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "main.go"), []byte(source), 0o644))
 	binaryPath := filepath.Join(sourceDir, "yunxiao.exe")
-	cmd := exec.Command("go", "build", "-o", binaryPath, ".")
+	cmd := exec.Command("go", "build", "-o", binaryPath, filepath.Join(sourceDir, "main.go"))
 	cmd.Dir = sourceDir
 	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64", "CGO_ENABLED=0")
 	output, err := cmd.CombinedOutput()
